@@ -334,11 +334,8 @@ if (process.env.FQDN) {
     const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
-invalidationCommand = new local.Command("invalidate", {
+const invalidationCommand = new local.Command("invalidate", {
     create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths '/*'`
-    environment: {
-      ETAG: indexFile.etag
-    }
   }, {
       replaceOnChanges: ["environment"]
   });
