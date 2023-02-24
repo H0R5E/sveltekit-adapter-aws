@@ -9,7 +9,9 @@ const updateDotenv = require('update-dotenv');
 export interface AWSAdapterProps {
   artifactPath?: string;
   autoDeploy?: boolean;
+  iac?: string;
   cdkProjectPath?: string;
+  pulumiProjectPath?: string;
   stackName?: string;
   esbuildOptions?: any;
   FQDN?: string;
@@ -22,7 +24,9 @@ export interface AWSAdapterProps {
 export function adapter({
   artifactPath = 'build',
   autoDeploy = false,
+  iac = 'cdk',
   cdkProjectPath = `${__dirname}/deploy/index.js`,
+  pulumiProjectPath = `${__dirname}/pulumi`,
   stackName = 'sveltekit-adapter-aws-webapp',
   esbuildOptions = {},
   FQDN,
@@ -98,65 +102,110 @@ export function adapter({
       ];
 
       writeFileSync(join(artifactPath, 'routes.json'), JSON.stringify(routes));
+      
+      if (autoDeploy) {
+        if (iac == "cdk") {
+          
+          builder.log.minor('Deploy using AWS-CDK.');
+          
+          spawnSync(
+            'npx',
+            [
+              'cdk',
+              'deploy',
+              '--app',
+              cdkProjectPath,
+              '*',
+              '--require-approval',
+              'never',
+              '--outputsFile',
+              join(__dirname, 'cdk.out', 'cdk-env-vars.json'),
+            ],
+            {
+              cwd: __dirname,
+              stdio: [process.stdin, process.stdout, process.stderr],
+              env: Object.assign(
+                {
+                  PROJECT_PATH: join(process.cwd(), '.env'),
+                  SERVER_PATH: join(process.cwd(), server_directory),
+                  STATIC_PATH: join(process.cwd(), static_directory),
+                  PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
+                  ROUTES: routes,
+                  STACKNAME: stackName,
+                  FQDN,
+                  LOG_RETENTION_DAYS,
+                  MEMORY_SIZE,
+                  ZONE_NAME: zoneName,
+                },
+                process.env,
+                env
+              ),
+            }
+          );
+          
+          try {
+            const rawData = readFileSync(join(__dirname,
+                                              'cdk.out',
+                                              'cdk-env-vars.json')).toString();
+            const data = JSON.parse(rawData);
+            const out = Object.keys(data).reduce(
+              (p, n) => ({
+                ...p,
+                ...Object.keys(data[n])
+                  .filter((x: string) => !x.includes('ExportsOutput'))
+                  .reduce((p: any, x: string) => {
+                    p[x.toUpperCase()] = data[n][x];
+                    return p;
+                  }, {}),
+              }),
+              {}
+            );
+            
+            updateDotenv({ ...environment.parsed, ...out });
+            unlinkSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json'));
+          } catch {}
+          
+          builder.log.minor('AWS-CDK deployment done.');
+          
+        } else if (iac == "pulumi") {
+          
+          builder.log.minor('Deploy using Pulumi.');
+          
+          spawnSync(
+            'pulumi',
+            [
+              'up',
+              '-s',
+              stackName,
+              '-f',
+              '-y'
+            ],
+            {
+              cwd: pulumiProjectPath,
+              stdio: [process.stdin, process.stdout, process.stderr],
+              env: Object.assign(
+                {
+                  PROJECT_PATH: join(process.cwd(), '.env'),
+                  SERVER_PATH: join(process.cwd(), server_directory),
+                  STATIC_PATH: join(process.cwd(), static_directory),
+                  PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
+                  ROUTES: routes,
+                  FQDN,
+                  MEMORY_SIZE,
+                  ZONE_NAME: zoneName,
+                },
+                process.env,
+                env
+              ),
+            }
+          );
+          
+          builder.log.minor('Pulumi deployment done.');
+          
+        }
+      }
 
-      builder.log.minor('Deploy using AWS-CDK.');
-      autoDeploy &&
-        spawnSync(
-          'npx',
-          [
-            'cdk',
-            'deploy',
-            '--app',
-            cdkProjectPath,
-            '*',
-            '--require-approval',
-            'never',
-            '--outputsFile',
-            join(__dirname, 'cdk.out', 'cdk-env-vars.json'),
-          ],
-          {
-            cwd: __dirname,
-            stdio: [process.stdin, process.stdout, process.stderr],
-            env: Object.assign(
-              {
-                PROJECT_PATH: join(process.cwd(), '.env'),
-                SERVER_PATH: join(process.cwd(), server_directory),
-                STATIC_PATH: join(process.cwd(), static_directory),
-                PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
-                ROUTES: routes,
-                STACKNAME: stackName,
-                FQDN,
-                LOG_RETENTION_DAYS,
-                MEMORY_SIZE,
-                ZONE_NAME: zoneName,
-              },
-              process.env,
-              env
-            ),
-          }
-        );
-
-      try {
-        const rawData = readFileSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json')).toString();
-        const data = JSON.parse(rawData);
-        const out = Object.keys(data).reduce(
-          (p, n) => ({
-            ...p,
-            ...Object.keys(data[n])
-              .filter((x: string) => !x.includes('ExportsOutput'))
-              .reduce((p: any, x: string) => {
-                p[x.toUpperCase()] = data[n][x];
-                return p;
-              }, {}),
-          }),
-          {}
-        );
-
-        updateDotenv({ ...environment.parsed, ...out });
-        unlinkSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json'));
-      } catch {}
-
-      builder.log.minor('AWS-CDK deployment done.');
+      
     },
   };
 }

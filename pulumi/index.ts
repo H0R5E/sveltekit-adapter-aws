@@ -1,13 +1,13 @@
 // Copyright 2016-2019, Pulumi Corporation.  All rights reserved. (Apache 2.0)
 // Modifications copyright (C) 2023 Mathew Topper
 
-import * as aws from "@pulumi/aws";
 import * as fs from "fs";
 import * as mime from "mime";
-import * as path from "path";
+import * as aws from "@pulumi/aws";
 import * as pulumi from "@pulumi/pulumi";
 import { config } from 'dotenv';
 import { local } from "@pulumi/command";
+import { hashElement } from "folder-hash";
 
 const serverPath = process.env.SERVER_PATH;
 const projectPath = process.env.PROJECT_PATH;
@@ -18,6 +18,121 @@ const domainName = [zoneName, ...MLDs].join(".");
 const staticPath = process.env.STATIC_PATH;
 const prerenderedPath = process.env.PRERENDERED_PATH;
 const routes = process.env.ROUTES?.split(',') || [];
+
+// Sync the contents of the source directory with the S3 bucket, which will 
+// in-turn show up on the CDN.
+function uploadStatic(path: string, bucket: aws.s3.Bucket) {
+    
+    // crawlDirectory recursive crawls the provided directory, applying the 
+    // provided function to every file it contains. Doesn't handle cycles from
+    // symlinks.
+    function crawlDirectory(dir: string, f: (_: string) => void) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+            const filePath = `${dir}/${file}`;
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+                crawlDirectory(filePath, f);
+            }
+            if (stat.isFile()) {
+                f(filePath);
+            }
+        }
+    }
+    
+    console.log("Syncing contents from local disk at", path);
+    crawlDirectory(
+        path,
+        (filePath: string) => {
+            const relativeFilePath = filePath.replace(path + "/", "");
+            const contentFile = new aws.s3.BucketObjectv2(
+                relativeFilePath,
+                {
+                    key: relativeFilePath,
+                    bucket: bucket.id,
+                    contentType: mime.getType(filePath) || undefined,
+                    source: new pulumi.asset.FileAsset(filePath),
+                },
+                {
+                    parent: bucket,
+                });
+        });
+}
+
+const optimizedCachePolicy = aws.cloudfront.getCachePolicyOutput({
+    name: "Managed-CachingOptimized",
+});
+
+const disabledCachePolicy = aws.cloudfront.getCachePolicyOutput({
+    name: "Managed-CachingDisabled",
+});
+
+function buildBehavior(route: string) {
+    return {
+        pathPattern: route,
+        allowedMethods: [
+            "GET",
+            "HEAD",
+            "OPTIONS",
+        ],
+        cachedMethods: [
+            "GET",
+            "HEAD",
+            "OPTIONS",
+        ],
+        targetOriginId: "s3Origin",
+        originRequestPolicyId: routeRequestPolicy.id,
+        cachePolicyId: optimizedCachePolicy.apply((policy) => policy.id!),
+        viewerProtocolPolicy: "redirect-to-https",
+    };
+}
+
+// Creates a new Route53 DNS record pointing the domain to the CloudFront
+// distribution.
+function createAliasRecord(
+        targetDomain: string,
+        distribution: aws.cloudfront.Distribution): aws.route53.Record {
+    
+    // Split a domain name into its subdomain and parent domain names.
+    // e.g. "www.example.com" => "www", "example.com".
+    function getDomainAndSubdomain(domain: string): {subdomain: string,
+                                                     parentDomain: string} {
+        const parts = domain.split(".");
+        if (parts.length < 2) {
+            throw new Error(`No TLD found on ${domain}`);
+        }
+        // No subdomain, e.g. awesome-website.com.
+        if (parts.length === 2) {
+            return { subdomain: "", parentDomain: domain };
+        }
+        const subdomain = parts[0];
+        parts.shift();  // Drop first element.
+        return {
+            subdomain,
+            // Trailing "." to canonicalize domain.
+            parentDomain: parts.join(".") + ".",
+        };
+    }
+    
+    const domainParts = getDomainAndSubdomain(targetDomain);
+    const hostedZoneId = aws.route53.getZone(
+        {name: domainParts.parentDomain},
+        {async: true}).then(zone => zone.zoneId);
+    return new aws.route53.Record(
+        targetDomain,
+        {
+            name: domainParts.subdomain,
+            zoneId: hostedZoneId,
+            type: "A",
+            aliases: [
+                {
+                    name: distribution.domainName,
+                    zoneId: distribution.hostedZoneId,
+                    evaluateTargetHealth: true,
+                },
+            ],
+        });
+}
 
 const iamForLambda = new aws.iam.Role("iamForLambda", {assumeRolePolicy: `{
     "Version": "2012-10-17",
@@ -113,53 +228,13 @@ if (process.env.FQDN) {
     
 }
 
-const bucket = new aws.s3.BucketV2("StaticContentBucket", {tags: {
-    forceDestroy: "true",
-}});
-
-const bAcl = new aws.s3.BucketAclV2("bAcl", {
-    bucket: bucket.id,
+const bucket = new aws.s3.Bucket("StaticContentBucket", {
     acl: "private",
+    forceDestroy: true,
 });
 
-// crawlDirectory recursive crawls the provided directory, applying the 
-// provided function to every file it contains. Doesn't handle cycles from
-// symlinks.
-function crawlDirectory(dir: string, f: (_: string) => void) {
-    const files = fs.readdirSync(dir);
-    for (const file of files) {
-        const filePath = `${dir}/${file}`;
-        const stat = fs.statSync(filePath);
-        if (stat.isDirectory()) {
-            crawlDirectory(filePath, f);
-        }
-        if (stat.isFile()) {
-            f(filePath);
-        }
-    }
-}
-
-// Sync the contents of the source directory with the S3 bucket, which will 
-// in-turn show up on the CDN.
-const webContentsRootPath = path.join(process.cwd(), config.pathToWebsiteContents);
-console.log("Syncing contents from local disk at", webContentsRootPath);
-crawlDirectory(
-    webContentsRootPath,
-    (filePath: string) => {
-        const relativeFilePath = filePath.replace(webContentsRootPath + "/", "");
-        const contentFile = new aws.s3.BucketObjectv2(
-            relativeFilePath,
-            {
-                key: relativeFilePath,
-                acl: "public-read",
-                bucket: bucket.id,
-                contentType: mime.getType(filePath) || undefined,
-                source: new pulumi.asset.FileAsset(filePath),
-            },
-            {
-                parent: bucket,
-            });
-    });
+uploadStatic(staticPath!, bucket);
+uploadStatic(prerenderedPath!, bucket);
 
 const originAccessIdentity = new aws.cloudfront.OriginAccessIdentity(
     "OriginAccessIdentity", {
@@ -190,7 +265,6 @@ const defaultRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
     },
 });
 
-
 const routeRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
     "RouteRequestPolicy", {
     cookiesConfig: {
@@ -209,25 +283,14 @@ const routeRequestPolicy = new aws.cloudfront.OriginRequestPolicy(
     },
 });
 
-
-function buildBehavior(route: string) {
-    return {
-        pathPattern: route,
-        allowedMethods: [
-            "GET",
-            "HEAD",
-            "OPTIONS",
-        ],
-        cachedMethods: [
-            "GET",
-            "HEAD",
-            "OPTIONS",
-        ],
-        targetOriginId: "s3Origin",
-        originRequestPolicyId: routeRequestPolicy.id,
-        viewerProtocolPolicy: "redirect-to-https",
-    }
-}
+const oac = new aws.cloudfront.OriginAccessControl(
+    "CloudFrontOriginAccessControl", {
+    description: "Default Origin Access Control",
+    name: "CloudFrontOriginAccessControl",
+    originAccessControlOriginType: "s3",
+    signingBehavior: "always",
+    signingProtocol: "sigv4"
+});
 
 const distribution = new aws.cloudfront.Distribution(
     "CloudFrontDistribution", {
@@ -245,16 +308,15 @@ const distribution = new aws.cloudfront.Distribution(
     {
         originId: "s3Origin",
         domainName: bucket.bucketRegionalDomainName,
-        s3OriginConfig: {
-            originAccessIdentity: originAccessIdentity.cloudfrontAccessIdentityPath,
-        },
+        originAccessControlId: oac.id,
     }],
     priceClass: "PriceClass_100",
     enabled: true,
-    defaultRootObject: "",
+    defaultRootObject: "index.html",
     viewerCertificate: process.env.FQDN
     ? {
-        acmCertificateArn: certificateArn,  // Per AWS, ACM certificate must be in the us-east-1 region.
+        // Per AWS, ACM certificate must be in the us-east-1 region.
+        acmCertificateArn: certificateArn,
         sslSupportMethod: "sni-only",
     } : {
         cloudfrontDefaultCertificate: true,
@@ -271,8 +333,12 @@ const distribution = new aws.cloudfront.Distribution(
             "POST",
             "PUT",
         ],
-        cachedMethods: [],
+        cachedMethods: [
+            "GET",
+            "HEAD",
+        ],
         originRequestPolicyId: defaultRequestPolicy.id,
+        cachePolicyId: disabledCachePolicy.apply((policy) => policy.id!),
         targetOriginId: "httpOrigin"
     },
     orderedCacheBehaviors: routes.map(buildBehavior),
@@ -285,59 +351,63 @@ const distribution = new aws.cloudfront.Distribution(
     },
 });
 
-// Split a domain name into its subdomain and parent domain names.
-// e.g. "www.example.com" => "www", "example.com".
-function getDomainAndSubdomain(domain: string): { subdomain: string, parentDomain: string } {
-    const parts = domain.split(".");
-    if (parts.length < 2) {
-        throw new Error(`No TLD found on ${domain}`);
-    }
-    // No subdomain, e.g. awesome-website.com.
-    if (parts.length === 2) {
-        return { subdomain: "", parentDomain: domain };
-    }
+const cloudFrontPolicyDocument = aws.iam.getPolicyDocumentOutput({
+    statements: [{
+        principals: [{
+            type: "Service",
+            identifiers: ["cloudfront.amazonaws.com"],
+        }],
+        actions: [
+            "s3:GetObject",
+        ],
+        resources: [
+            pulumi.interpolate`${bucket.arn}/\*`,
+        ],
+        conditions: [{
+            test: "StringEquals",
+            variable: "AWS:SourceArn",
+            values: [distribution.arn],
+        }],
+    },{
+        principals: [{
+            type: "AWS",
+            identifiers: ["*"],
+        }],
+        actions: [
+            "s3:*",
+        ],
+        resources: [
+            pulumi.interpolate`${bucket.arn}/\*`,
+            bucket.arn,
+        ],
+        conditions: [{
+            test: "Bool",
+            variable: "aws:SecureTransport",
+            values: ["false"],
+        }],
+    }],
+});
 
-    const subdomain = parts[0];
-    parts.shift();  // Drop first element.
-    return {
-        subdomain,
-        // Trailing "." to canonicalize domain.
-        parentDomain: parts.join(".") + ".",
-    };
-}
-
-// Creates a new Route53 DNS record pointing the domain to the CloudFront distribution.
-function createAliasRecord(
-        targetDomain: string,
-        distribution: aws.cloudfront.Distribution): aws.route53.Record {
-    const domainParts = getDomainAndSubdomain(targetDomain);
-    const hostedZoneId = aws.route53.getZone(
-        {name: domainParts.parentDomain},
-        {async: true}).then(zone => zone.zoneId);
-    return new aws.route53.Record(
-        targetDomain,
-        {
-            name: domainParts.subdomain,
-            zoneId: hostedZoneId,
-            type: "A",
-            aliases: [
-                {
-                    name: distribution.domainName,
-                    zoneId: distribution.hostedZoneId,
-                    evaluateTargetHealth: true,
-                },
-            ],
-        });
-}
+const cloudFrontBucketPolicy = new aws.s3.BucketPolicy(
+    "cloudFrontBucketPolicy", {
+    bucket: bucket.id,
+    policy: cloudFrontPolicyDocument.apply(policy => policy.json),
+});
 
 if (process.env.FQDN) {
     const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
-const invalidationCommand = new local.Command("invalidate", {
-    create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths '/*'`
-  }, {
-      replaceOnChanges: ["environment"]
-  });
+const staticHash = hashElement(staticPath!)
+const prerenderedHash = hashElement(prerenderedPath!)
 
-// exports.url = counterTable.url;
+const invalidationCommand = new local.Command("invalidate", {
+    create: pulumi.interpolate `aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
+    environment: {
+        STATIC_HASH: staticHash.then(hash => hash.toString()),
+        PRERENDERED_HASH: prerenderedHash.then(hash => hash.toString()),
+        }
+    }, {replaceOnChanges: ["environment"]}
+);
+
+exports.appUrl = process.env.FQDN ? `https://${process.env.FQDN}` : pulumi.interpolate `https://${distribution.domainName}`
