@@ -45,7 +45,7 @@ function uploadStatic(path: string, bucket: aws.s3.Bucket) {
         path,
         (filePath: string) => {
             const relativeFilePath = filePath.replace(path + "/", "");
-            const contentFile = new aws.s3.BucketObjectv2(
+            const contentFile = new aws.s3.BucketObject(
                 relativeFilePath,
                 {
                     key: relativeFilePath,
@@ -157,8 +157,10 @@ const serverHandler = new aws.lambda.Function("LambdaServerFunctionHandler", {
     timeout: 900,
     memorySize: memorySize,
     environment: {
-        ...environment.parsed,
-      } as any}
+        variables: {
+            ...environment.parsed,
+        } as any}
+    }
 );
 
 const httpApi = new aws.apigatewayv2.Api("API", {
@@ -310,6 +312,7 @@ const distribution = new aws.cloudfront.Distribution(
         domainName: bucket.bucketRegionalDomainName,
         originAccessControlId: oac.id,
     }],
+    aliases: process.env.FQDN ? [process.env.FQDN] : undefined,
     priceClass: "PriceClass_100",
     enabled: true,
     defaultRootObject: "index.html",
@@ -342,8 +345,6 @@ const distribution = new aws.cloudfront.Distribution(
         targetOriginId: "httpOrigin"
     },
     orderedCacheBehaviors: routes.map(buildBehavior),
-    isIpv6Enabled: true,
-    comment: "Some comment",
     restrictions: {
         geoRestriction: {
             restrictionType: "none",
@@ -398,14 +399,11 @@ if (process.env.FQDN) {
     const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
-const staticHash = hashElement(staticPath!)
-const prerenderedHash = hashElement(prerenderedPath!)
-
 const invalidationCommand = new local.Command("invalidate", {
     create: pulumi.interpolate `aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
     environment: {
-        STATIC_HASH: staticHash.then(hash => hash.toString()),
-        PRERENDERED_HASH: prerenderedHash.then(hash => hash.toString()),
+        STATIC_HASH: hashElement(staticPath!).then(hash => hash.toString()),
+        PRERENDERED_HASH: hashElement(prerenderedPath!).then(hash => hash.toString()),
         }
     }, {replaceOnChanges: ["environment"]}
 );
