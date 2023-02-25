@@ -399,13 +399,75 @@ if (process.env.FQDN) {
     const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
+export interface PathHashResourceInputs {
+    path: pulumi.Input<string>;
+}
+
+interface PathHashInputs {
+    path: string;
+}
+
+interface PathHashOutputs {
+    hash: string;
+}
+
+const pathHashProvider: pulumi.dynamic.ResourceProvider = {
+    async create(inputs: PathHashInputs) {
+        const pathHash = hashElement(inputs.path).toString();
+        return { id: inputs.path, 
+                 outs: {hash: pathHash}};
+    },
+    async diff(id: string,
+               previousOutput: PathHashOutputs,
+               news: PathHashInputs): Promise<pulumi.dynamic.DiffResult> {
+        
+        const replaces: string[] = [];
+        let changes = true;
+
+        var oldHash = previousOutput.hash;
+        var newHash = hashElement(news.path).toString();
+
+        if (JSON.stringify(oldHash) === JSON.stringify(newHash)) {
+            changes = false;
+        }
+        
+        return {
+            deleteBeforeReplace: false,
+            replaces: replaces,
+            changes: changes,
+        };
+    },
+    async update(id, olds: PathHashInputs, news: PathHashInputs) {
+        const pathHash = hashElement(news.path).toString();
+        return { outs: {hash: pathHash} };
+    }
+}
+
+export class PathHash extends pulumi.dynamic.Resource {
+    public readonly hash!: pulumi.Output<string>;
+    constructor(name: string,
+                args: PathHashResourceInputs,
+                opts?: pulumi.CustomResourceOptions) {
+        super(pathHashProvider, name, args, opts);
+    }
+}
+
+let staticHash = new PathHash("staticHash", {
+    path: staticPath!
+});
+
+let prerenderedHash = new PathHash("prerenderedHash", {
+    path: prerenderedPath!
+});
+
 const invalidationCommand = new local.Command("invalidate", {
     create: pulumi.interpolate `aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
     environment: {
-        STATIC_HASH: hashElement(staticPath!).then(hash => hash.toString()),
-        PRERENDERED_HASH: hashElement(prerenderedPath!).then(hash => hash.toString()),
+        STATIC_HASH: staticHash.hash,
+        PRERENDERED_HASH: prerenderedHash.hash,
         }
-    }, {replaceOnChanges: ["environment"]}
+    }, {replaceOnChanges: ["environment.STATIC_HASH",
+                           "environment.PRERENDERED_HASH"]}
 );
 
 exports.appUrl = process.env.FQDN ? `https://${process.env.FQDN}` : pulumi.interpolate `https://${distribution.domainName}`
