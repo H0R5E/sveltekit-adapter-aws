@@ -413,9 +413,9 @@ interface PathHashOutputs {
 
 const pathHashProvider: pulumi.dynamic.ResourceProvider = {
     async create(inputs: PathHashInputs) {
-        const pathHash = hashElement(inputs.path).toString();
+        const pathHash = await hashElement(inputs.path);
         return { id: inputs.path, 
-                 outs: {hash: pathHash}};
+                 outs: {hash: pathHash.toString()}};
     },
     async diff(id: string,
                previousOutput: PathHashOutputs,
@@ -424,10 +424,10 @@ const pathHashProvider: pulumi.dynamic.ResourceProvider = {
         const replaces: string[] = [];
         let changes = true;
 
-        var oldHash = previousOutput.hash;
-        var newHash = hashElement(news.path).toString();
+        const oldHash = previousOutput.hash;
+        const newHash = await hashElement(news.path);
 
-        if (JSON.stringify(oldHash) === JSON.stringify(newHash)) {
+        if (oldHash === newHash.toString()) {
             changes = false;
         }
         
@@ -438,8 +438,8 @@ const pathHashProvider: pulumi.dynamic.ResourceProvider = {
         };
     },
     async update(id, olds: PathHashInputs, news: PathHashInputs) {
-        const pathHash = hashElement(news.path).toString();
-        return { outs: {hash: pathHash} };
+        const pathHash = await hashElement(news.path);
+        return { outs: {hash: pathHash.toString()} };
     }
 }
 
