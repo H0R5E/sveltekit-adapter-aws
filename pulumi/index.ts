@@ -399,75 +399,18 @@ if (process.env.FQDN) {
     const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
-export interface PathHashResourceInputs {
-    path: pulumi.Input<string>;
-}
+const staticHash: pulumi.Output<string> = pulumi.concat(hashElement(staticPath!).toString());
+const prerenderedHash: pulumi.Output<string> = pulumi.concat(hashElement(prerenderedPath!).toString());
 
-interface PathHashInputs {
-    path: string;
-}
-
-interface PathHashOutputs {
-    hash: string;
-}
-
-const pathHashProvider: pulumi.dynamic.ResourceProvider = {
-    async create(inputs: PathHashInputs) {
-        const pathHash = await hashElement(inputs.path);
-        return { id: inputs.path, 
-                 outs: {hash: pathHash.toString()}};
-    },
-    async diff(id: string,
-               previousOutput: PathHashOutputs,
-               news: PathHashInputs): Promise<pulumi.dynamic.DiffResult> {
-        
-        const replaces: string[] = [];
-        let changes = true;
-
-        const oldHash = previousOutput.hash;
-        const newHash = await hashElement(news.path);
-
-        if (oldHash === newHash.toString()) {
-            changes = false;
-        }
-        
-        return {
-            deleteBeforeReplace: false,
-            replaces: replaces,
-            changes: changes,
-        };
-    },
-    async update(id, olds: PathHashInputs, news: PathHashInputs) {
-        const pathHash = await hashElement(news.path);
-        return { outs: {hash: pathHash.toString()} };
-    }
-}
-
-export class PathHash extends pulumi.dynamic.Resource {
-    public readonly hash!: pulumi.Output<string>;
-    constructor(name: string,
-                args: PathHashResourceInputs,
-                opts?: pulumi.CustomResourceOptions) {
-        super(pathHashProvider, name, args, opts);
-    }
-}
-
-let staticHash = new PathHash("staticHash", {
-    path: staticPath!
-});
-
-let prerenderedHash = new PathHash("prerenderedHash", {
-    path: prerenderedPath!
-});
-
-const invalidationCommand = new local.Command("invalidate", {
-    create: pulumi.interpolate `aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
-    environment: {
-        STATIC_HASH: staticHash.hash,
-        PRERENDERED_HASH: prerenderedHash.hash,
-        }
-    }, {replaceOnChanges: ["environment.STATIC_HASH",
-                           "environment.PRERENDERED_HASH"]}
+const invalidationCommand = new local.Command(
+  'invalidate',
+  {
+    create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
+    triggers: [staticHash, prerenderedHash],
+  },
+  {
+    dependsOn: [distribution],
+  }
 );
 
 exports.appUrl = process.env.FQDN ? `https://${process.env.FQDN}` : pulumi.interpolate `https://${distribution.domainName}`
