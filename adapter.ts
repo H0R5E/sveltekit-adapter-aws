@@ -102,12 +102,11 @@ export function adapter({
       ];
 
       writeFileSync(join(artifactPath, 'routes.json'), JSON.stringify(routes));
-      
+
       if (autoDeploy) {
-        if (iac == "cdk") {
-          
+        if (iac == 'cdk') {
           builder.log.minor('Deploy using AWS-CDK.');
-          
+
           spawnSync(
             'npx',
             [
@@ -142,11 +141,9 @@ export function adapter({
               ),
             }
           );
-          
+
           try {
-            const rawData = readFileSync(join(__dirname,
-                                              'cdk.out',
-                                              'cdk-env-vars.json')).toString();
+            const rawData = readFileSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json')).toString();
             const data = JSON.parse(rawData);
             const out = Object.keys(data).reduce(
               (p, n) => ({
@@ -160,56 +157,38 @@ export function adapter({
               }),
               {}
             );
-            
+
             updateDotenv({ ...environment.parsed, ...out, iac: iac });
             unlinkSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json'));
           } catch {}
-          
+
           builder.log.minor('AWS-CDK deployment done.');
-          
-        } else if (iac == "pulumi") {
-          
+        } else if (iac == 'pulumi') {
           builder.log.minor('Deploy using Pulumi.');
-          
-          spawnSync(
-            'pulumi',
-            [
-              'up',
-              '-s',
-              stackName,
-              '-f',
-              '-y'
-            ],
-            {
-              cwd: pulumiProjectPath,
-              stdio: [process.stdin, process.stdout, process.stderr],
-              env: Object.assign(
-                {
-                  PROJECT_PATH: join(process.cwd(), '.env'),
-                  SERVER_PATH: join(process.cwd(), server_directory),
-                  STATIC_PATH: join(process.cwd(), static_directory),
-                  PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
-                  ROUTES: routes,
-                  FQDN,
-                  MEMORY_SIZE,
-                  ZONE_NAME: zoneName,
-                },
-                process.env,
-                env
-              ),
-            }
-          );
-          
-          updateDotenv({ ...environment.parsed,
-                         stackName: stackName,
-                         iac: iac,
-                         pulumiProjectPath: pulumiProjectPath });
+
+          spawnSync('pulumi', ['up', '-s', stackName, '-f', '-y'], {
+            cwd: pulumiProjectPath,
+            stdio: [process.stdin, process.stdout, process.stderr],
+            env: Object.assign(
+              {
+                PROJECT_PATH: join(process.cwd(), '.env'),
+                SERVER_PATH: join(process.cwd(), server_directory),
+                STATIC_PATH: join(process.cwd(), static_directory),
+                PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
+                ROUTES: routes,
+                FQDN,
+                MEMORY_SIZE,
+                ZONE_NAME: zoneName,
+              },
+              process.env,
+              env
+            ),
+          });
+
+          updateDotenv({ ...environment.parsed, stackName: stackName, iac: iac, pulumiProjectPath: pulumiProjectPath });
           builder.log.minor('Pulumi deployment done.');
-          
         }
-        
       }
-      
     },
   };
 }
