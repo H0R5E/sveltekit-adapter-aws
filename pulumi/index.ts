@@ -5,19 +5,23 @@ import * as fs from 'fs';
 import * as mime from 'mime';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
-import { config } from 'dotenv';
+import { config, DotenvConfigOutput } from 'dotenv';
 import { local } from '@pulumi/command';
 import { hashElement } from 'folder-hash';
+import { assign, keys, pick } from 'lodash';
 
 const serverPath = process.env.SERVER_PATH;
 const projectPath = process.env.PROJECT_PATH;
-const environment = config({ path: projectPath });
 const memorySize = parseInt(process.env.MEMORY_SIZE!) || 128;
 const [_, zoneName, ...MLDs] = process.env.FQDN?.split('.') || [];
 const domainName = [zoneName, ...MLDs].join('.');
 const staticPath = process.env.STATIC_PATH;
 const prerenderedPath = process.env.PRERENDERED_PATH;
 const routes = process.env.ROUTES?.split(',') || [];
+
+const dotenv = config({ path: projectPath });
+const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
+const environment = { parsed: parsed } as DotenvConfigOutput;
 
 // Sync the contents of the source directory with the S3 bucket, which will
 // in-turn show up on the CDN.
@@ -378,14 +382,72 @@ if (process.env.FQDN) {
   const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
 
-const staticHash: pulumi.Output<string> = pulumi.concat(hashElement(staticPath!).toString());
-const prerenderedHash: pulumi.Output<string> = pulumi.concat(hashElement(prerenderedPath!).toString());
+export interface PathHashResourceInputs {
+  path: pulumi.Input<string>;
+}
+
+interface PathHashInputs {
+  path: string;
+}
+
+interface PathHashOutputs {
+  hash: string;
+}
+
+const pathHashProvider: pulumi.dynamic.ResourceProvider = {
+  async create(inputs: PathHashInputs) {
+      const pathHash = await hashElement(inputs.path);
+      return { id: inputs.path, 
+               outs: {hash: pathHash.toString()}};
+  },
+  async diff(id: string,
+             previousOutput: PathHashOutputs,
+             news: PathHashInputs): Promise<pulumi.dynamic.DiffResult> {
+      
+      const replaces: string[] = [];
+      let changes = true;
+
+      const oldHash = previousOutput.hash;
+      const newHash = await hashElement(news.path);
+
+      if (oldHash === newHash.toString()) {
+          changes = false;
+      }
+      
+      return {
+          deleteBeforeReplace: false,
+          replaces: replaces,
+          changes: changes,
+      };
+  },
+  async update(id, olds: PathHashInputs, news: PathHashInputs) {
+      const pathHash = await hashElement(news.path);
+      return { outs: {hash: pathHash.toString()} };
+  }
+}
+
+export class PathHash extends pulumi.dynamic.Resource {
+  public readonly hash!: pulumi.Output<string>;
+  constructor(name: string,
+              args: PathHashResourceInputs,
+              opts?: pulumi.CustomResourceOptions) {
+      super(pathHashProvider, name, { hash: undefined, ...args }, opts);
+  }
+}
+
+let staticHash = new PathHash("staticHash", {
+  path: staticPath!
+});
+
+let prerenderedHash = new PathHash("prerenderedHash", {
+  path: prerenderedPath!
+});
 
 const invalidationCommand = new local.Command(
   'invalidate',
   {
     create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
-    triggers: [staticHash, prerenderedHash],
+    triggers: [staticHash.hash, prerenderedHash.hash],
   },
   {
     dependsOn: [distribution],

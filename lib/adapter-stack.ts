@@ -17,8 +17,9 @@ import {
 } from 'aws-cdk-lib';
 import { CorsHttpMethod, HttpApi, IHttpApi, PayloadFormatVersion } from '@aws-cdk/aws-apigatewayv2-alpha';
 import { HttpLambdaIntegration } from '@aws-cdk/aws-apigatewayv2-integrations-alpha';
-import { config } from 'dotenv';
+import { config, DotenvConfigOutput } from 'dotenv';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { assign, keys, pick } from 'lodash';
 
 export interface AWSAdapterStackProps extends StackProps {
   FQDN: string;
@@ -45,9 +46,12 @@ export class AWSAdapterStack extends Stack {
     const prerenderedPath = process.env.PRERENDERED_PATH;
     const logRetention = parseInt(process.env.LOG_RETENTION_DAYS!) || 7;
     const memorySize = parseInt(process.env.MEMORY_SIZE!) || 128;
-    const environment = config({ path: projectPath });
     const [_, zoneName, ...MLDs] = process.env.FQDN?.split('.') || [];
     const domainName = [zoneName, ...MLDs].join(".");
+    
+    const dotenv = config({ path: projectPath });
+    const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
+    const environment = { parsed: parsed } as DotenvConfigOutput;
 
     this.serverHandler = new aws_lambda.Function(this, 'LambdaServerFunctionHandler', {
       code: new aws_lambda.AssetCode(serverPath!),
