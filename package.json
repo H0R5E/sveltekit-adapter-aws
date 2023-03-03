@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
     "postinstall": "tsc"
   },
   "devDependencies": {
