@@ -122,7 +122,7 @@ function createAliasRecord(targetDomain: string, distribution: aws.cloudfront.Di
   });
 }
 
-const iamForLambda = new aws.iam.Role('iamForLambda', {
+const iamForLambda = new aws.iam.Role('IamForLambda', {
   assumeRolePolicy: `{
     "Version": "2012-10-17",
     "Statement": [
@@ -169,7 +169,7 @@ const httpApi = new aws.apigatewayv2.Api('API', {
 });
 
 const lambdaPermission = new aws.lambda.Permission(
-  'lambdaPermission',
+  'LambdaPermission',
   {
     action: 'lambda:InvokeFunction',
     principal: 'apigateway.amazonaws.com',
@@ -179,7 +179,7 @@ const lambdaPermission = new aws.lambda.Permission(
   { dependsOn: [httpApi, serverHandler] }
 );
 
-const integration = new aws.apigatewayv2.Integration('lambdaIntegration', {
+const integration = new aws.apigatewayv2.Integration('LambdaIntegration', {
   apiId: httpApi.id,
   integrationType: 'AWS_PROXY',
   integrationUri: serverHandler.arn,
@@ -187,7 +187,7 @@ const integration = new aws.apigatewayv2.Integration('lambdaIntegration', {
   payloadFormatVersion: '1.0',
 });
 
-const route = new aws.apigatewayv2.Route('apiRoute', {
+const route = new aws.apigatewayv2.Route('ApiRoute', {
   apiId: httpApi.id,
   routeKey: '$default',
   target: pulumi.interpolate`integrations/${integration.id}`,
@@ -205,7 +205,7 @@ if (process.env.FQDN) {
   let eastRegion = new aws.Provider('east', { region: 'us-east-1' });
 
   const certificate = new aws.acm.Certificate(
-    'certificate',
+    'Certificate',
     {
       domainName: process.env.FQDN!,
       validationMethod: 'DNS',
@@ -218,7 +218,7 @@ if (process.env.FQDN) {
     privateZone: false,
   });
 
-  const certValidation = new aws.route53.Record(`${process.env.FQDN!}-validation`, {
+  const certValidation = new aws.route53.Record(`${process.env.FQDN!}.validation`, {
     name: certificate.domainValidationOptions[0].resourceRecordName,
     records: [certificate.domainValidationOptions[0].resourceRecordValue],
     ttl: 60,
@@ -227,7 +227,7 @@ if (process.env.FQDN) {
   });
 
   const certificateValidation = new aws.acm.CertificateValidation(
-    'certificateValidation',
+    'CertificateValidation',
     {
       certificateArn: certificate.arn,
       validationRecordFqdns: [certValidation.fqdn],
@@ -383,7 +383,7 @@ const cloudFrontPolicyDocument = aws.iam.getPolicyDocumentOutput({
   ],
 });
 
-const cloudFrontBucketPolicy = new aws.s3.BucketPolicy('cloudFrontBucketPolicy', {
+const cloudFrontBucketPolicy = new aws.s3.BucketPolicy('CloudFrontBucketPolicy', {
   bucket: bucket.id,
   policy: cloudFrontPolicyDocument.apply((policy) => policy.json),
 });
@@ -445,16 +445,16 @@ export class PathHash extends pulumi.dynamic.Resource {
   }
 }
 
-let staticHash = new PathHash("staticHash", {
+let staticHash = new PathHash("StaticHash", {
   path: staticPath!
 });
 
-let prerenderedHash = new PathHash("prerenderedHash", {
+let prerenderedHash = new PathHash("PrerenderedHash", {
   path: prerenderedPath!
 });
 
 const invalidationCommand = new local.Command(
-  'invalidate',
+  'Invalidate',
   {
     create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
     triggers: [staticHash.hash, prerenderedHash.hash],
