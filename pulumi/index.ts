@@ -139,6 +139,11 @@ const iamForLambda = new aws.iam.Role('iamForLambda', {
   `,
 });
 
+const RPA = new aws.iam.RolePolicyAttachment("ServerRPABasicExecutionRole", {
+  role: iamForLambda.name,
+  policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole
+});
+
 const serverHandler = new aws.lambda.Function('LambdaServerFunctionHandler', {
   code: new pulumi.asset.FileArchive(serverPath!),
   role: iamForLambda.arn,
@@ -186,6 +191,12 @@ const route = new aws.apigatewayv2.Route('apiRoute', {
   apiId: httpApi.id,
   routeKey: '$default',
   target: pulumi.interpolate`integrations/${integration.id}`,
+});
+
+const stage = new aws.apigatewayv2.Stage('ApiStage', {
+  name: '$default',
+  apiId: httpApi.id,
+  autoDeploy: true
 });
 
 let certificateArn: pulumi.Input<string> = '';
@@ -307,7 +318,6 @@ const distribution = new aws.cloudfront.Distribution('CloudFrontDistribution', {
   aliases: process.env.FQDN ? [process.env.FQDN] : undefined,
   priceClass: 'PriceClass_100',
   enabled: true,
-  defaultRootObject: 'index.html',
   viewerCertificate: process.env.FQDN
     ? {
         // Per AWS, ACM certificate must be in the us-east-1 region.
