@@ -254,6 +254,7 @@ const defaultRequestPolicy = new aws.cloudfront.OriginRequestPolicy('DefaultRequ
         'Referer',
         'Accept-Language',
         'Accept-Datetime',
+        'X-Auth-Return-Redirect'
       ],
     },
   },
