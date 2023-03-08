@@ -160,16 +160,10 @@ const serverHandler = new aws.lambda.Function('LambdaServerFunctionHandler', {
 
 const httpApi = new aws.apigatewayv2.Api('API', {
   protocolType: 'HTTP',
-  corsConfiguration: {
-    allowHeaders: ['*'],
-    allowMethods: ['*'],
-    allowOrigins: ['*'],
-    maxAge: 86400,
-  },
 });
 
-const lambdaPermission = new aws.lambda.Permission(
-  'LambdaPermission',
+const serverPermission = new aws.lambda.Permission(
+  'ServerPermission',
   {
     action: 'lambda:InvokeFunction',
     principal: 'apigateway.amazonaws.com',
@@ -179,7 +173,7 @@ const lambdaPermission = new aws.lambda.Permission(
   { dependsOn: [httpApi, serverHandler] }
 );
 
-const integration = new aws.apigatewayv2.Integration('LambdaIntegration', {
+const serverIntegration = new aws.apigatewayv2.Integration('ServerIntegration', {
   apiId: httpApi.id,
   integrationType: 'AWS_PROXY',
   integrationUri: serverHandler.arn,
@@ -187,17 +181,11 @@ const integration = new aws.apigatewayv2.Integration('LambdaIntegration', {
   payloadFormatVersion: '1.0',
 });
 
-const route = new aws.apigatewayv2.Route('ApiRoute', {
+const defaultRoute = new aws.apigatewayv2.Route('DefaultRoute', {
   apiId: httpApi.id,
   routeKey: '$default',
-  target: pulumi.interpolate`integrations/${integration.id}`,
-});
-
-const stage = new aws.apigatewayv2.Stage('ApiStage', {
-  name: '$default',
-  apiId: httpApi.id,
-  autoDeploy: true
-});
+  target: pulumi.interpolate`integrations/${serverIntegration.id}`,
+}, { dependsOn: [serverIntegration] });
 
 let certificateArn: pulumi.Input<string> = '';
 
@@ -391,6 +379,64 @@ const cloudFrontBucketPolicy = new aws.s3.BucketPolicy('CloudFrontBucketPolicy',
 if (process.env.FQDN) {
   const aRecord = createAliasRecord(process.env.FQDN, distribution);
 }
+
+var allowedOrigins: (string | pulumi.Output<string>)[] = [pulumi.interpolate`https://${distribution.domainName}`];
+process.env.FQDN && allowedOrigins.push(`https://${process.env.FQDN}`);
+
+const optionsHandler = new aws.lambda.Function('OptionsLambda', {
+  role: iamForLambda.arn,
+  handler: "index.handler",
+  runtime: 'nodejs16.x',
+  code: new pulumi.asset.AssetArchive({
+      "index.js": pulumi.all(allowedOrigins).apply((x) => {return new pulumi.asset.StringAsset(
+`exports.handler = async(event) => {
+  const allowedOrigins = ${JSON.stringify(x)};
+  var headers = {'Access-Control-Allow-Methods': '*',
+                 'Access-Control-Allow-Headers': '*',
+                 'Access-Control-Max-Age': 86400,
+                 'Connection': 'keep-alive'};
+  if (allowedOrigins.includes(event.headers.origin)) {
+    headers['Access-Control-Allow-Origin'] = event.headers.origin;
+  }
+  const response = {
+    statusCode: 204,
+    headers: headers,
+  };
+  return response;
+  }`)}),
+  })
+});
+
+const optionsPermission = new aws.lambda.Permission(
+  'OptionsPermission',
+  {
+    action: 'lambda:InvokeFunction',
+    principal: 'apigateway.amazonaws.com',
+    function: optionsHandler,
+    sourceArn: pulumi.interpolate`${httpApi.executionArn}/*/*`,
+  },
+  { dependsOn: [httpApi, optionsHandler] }
+);
+
+const optionsIntegration = new aws.apigatewayv2.Integration('OptionsIntegration', {
+  apiId: httpApi.id,
+  integrationType: 'AWS_PROXY',
+  integrationUri: optionsHandler.arn,
+  integrationMethod: 'POST',
+  payloadFormatVersion: '1.0',
+});
+
+const optionsRoute = new aws.apigatewayv2.Route('OptionsRoute', {
+  apiId: httpApi.id,
+  routeKey: 'OPTIONS /{proxy+}',
+  target: pulumi.interpolate`integrations/${optionsIntegration.id}`,
+}, { dependsOn: [optionsIntegration] });
+
+const stage = new aws.apigatewayv2.Stage('ApiStage', {
+  name: '$default',
+  apiId: httpApi.id,
+  autoDeploy: true
+}, { dependsOn: [defaultRoute, optionsRoute] });
 
 export interface PathHashResourceInputs {
   path: pulumi.Input<string>;
