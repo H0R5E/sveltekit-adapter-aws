@@ -158,7 +158,7 @@ export function adapter({
               {}
             );
 
-            updateDotenv({ ...environment.parsed, ...out, iac: iac });
+            updateDotenv({ ...environment.parsed, ...out });
             unlinkSync(join(__dirname, 'cdk.out', 'cdk-env-vars.json'));
           } catch {}
 
@@ -185,7 +185,6 @@ export function adapter({
             ),
           });
 
-          updateDotenv({ ...environment.parsed, stackName: stackName, iac: iac, pulumiProjectPath: pulumiProjectPath });
           builder.log.minor('Pulumi deployment done.');
         }
       }
