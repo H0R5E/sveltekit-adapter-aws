@@ -70,12 +70,13 @@ export function adapter({
         entryPoints: [`${server_directory}/_index.js`],
         outfile: `${server_directory}/index.js`,
         inject: [join(`${server_directory}/shims.js`)],
-        external: ['node:*', ...(esbuildOptions?.external ?? [])],
+        external: [...(esbuildOptions?.external ?? [])],
         format: esbuildOptions?.format ?? 'cjs',
         banner: esbuildOptions?.banner ?? {},
         bundle: true,
         platform: 'node',
         target: esbuildOptions?.target ?? 'node16',
+        treeShaking: true,
       });
 
       builder.log.minor('Prerendering static pages.');
