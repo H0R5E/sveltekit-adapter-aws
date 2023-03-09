@@ -27,7 +27,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "format": "prettier --write .",
-    "postinstall": "tsc"
+    "install": "tsc"
   },
   "devDependencies": {
     "@types/set-cookie-parser": "^2.4.2",
@@ -37,6 +37,7 @@
   "dependencies": {
     "@aws-cdk/aws-apigatewayv2-alpha": "2.66.0-alpha.0",
     "@aws-cdk/aws-apigatewayv2-integrations-alpha": "2.66.0-alpha.0",
+    "@esbuild-plugins/node-resolve": "^0.2.2",
     "@pulumi/aws": "^5.30.0",
     "@pulumi/command": "^0.7.1",
     "@pulumi/pulumi": "^3.56.0",
