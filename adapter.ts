@@ -76,7 +76,6 @@ export function adapter({
         bundle: true,
         platform: 'node',
         target: esbuildOptions?.target ?? 'node16',
-        treeShaking: true,
       });
 
       builder.log.minor('Prerendering static pages.');
