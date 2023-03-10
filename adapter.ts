@@ -102,9 +102,12 @@ export function adapter({
       ];
 
       writeFileSync(join(artifactPath, 'routes.json'), JSON.stringify(routes));
+      let adapterProps: AWSAdapterProps = {
+        iac: iac,
+      };
 
       if (autoDeploy) {
-        if (iac == 'cdk') {
+        if (iac === 'cdk') {
           builder.log.minor('Deploy using AWS-CDK.');
 
           spawnSync(
@@ -163,7 +166,7 @@ export function adapter({
           } catch {}
 
           builder.log.minor('AWS-CDK deployment done.');
-        } else if (iac == 'pulumi') {
+        } else if (iac === 'pulumi') {
           builder.log.minor('Deploy using Pulumi.');
 
           spawnSync('pulumi', ['up', '-s', stackName, '-f', '-y'], {
@@ -185,8 +188,12 @@ export function adapter({
             ),
           });
 
+          adapterProps.pulumiProjectPath = pulumiProjectPath;
+          adapterProps.stackName = stackName;
           builder.log.minor('Pulumi deployment done.');
         }
+
+        writeFileSync(join(artifactPath, '.adapterprops.json'), JSON.stringify(adapterProps));
       }
     },
   };
