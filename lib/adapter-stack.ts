@@ -47,8 +47,8 @@ export class AWSAdapterStack extends Stack {
     const logRetention = parseInt(process.env.LOG_RETENTION_DAYS!) || 7;
     const memorySize = parseInt(process.env.MEMORY_SIZE!) || 128;
     const [_, zoneName, ...MLDs] = process.env.FQDN?.split('.') || [];
-    const domainName = [zoneName, ...MLDs].join(".");
-    
+    const domainName = [zoneName, ...MLDs].join('.');
+
     const dotenv = config({ path: projectPath });
     const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
     const environment = { parsed: parsed } as DotenvConfigOutput;

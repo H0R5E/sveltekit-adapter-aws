@@ -139,9 +139,9 @@ const iamForLambda = new aws.iam.Role('IamForLambda', {
   `,
 });
 
-const RPA = new aws.iam.RolePolicyAttachment("ServerRPABasicExecutionRole", {
+const RPA = new aws.iam.RolePolicyAttachment('ServerRPABasicExecutionRole', {
   role: iamForLambda.name,
-  policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole
+  policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
 });
 
 const serverHandler = new aws.lambda.Function('LambdaServerFunctionHandler', {
@@ -181,11 +181,15 @@ const serverIntegration = new aws.apigatewayv2.Integration('ServerIntegration', 
   payloadFormatVersion: '1.0',
 });
 
-const defaultRoute = new aws.apigatewayv2.Route('DefaultRoute', {
-  apiId: httpApi.id,
-  routeKey: '$default',
-  target: pulumi.interpolate`integrations/${serverIntegration.id}`,
-}, { dependsOn: [serverIntegration] });
+const defaultRoute = new aws.apigatewayv2.Route(
+  'DefaultRoute',
+  {
+    apiId: httpApi.id,
+    routeKey: '$default',
+    target: pulumi.interpolate`integrations/${serverIntegration.id}`,
+  },
+  { dependsOn: [serverIntegration] }
+);
 
 let certificateArn: pulumi.Input<string> = '';
 
@@ -254,7 +258,7 @@ const defaultRequestPolicy = new aws.cloudfront.OriginRequestPolicy('DefaultRequ
         'Referer',
         'Accept-Language',
         'Accept-Datetime',
-        'X-Auth-Return-Redirect'
+        'X-Auth-Return-Redirect',
       ],
     },
   },
@@ -386,11 +390,12 @@ process.env.FQDN && allowedOrigins.push(`https://${process.env.FQDN}`);
 
 const optionsHandler = new aws.lambda.Function('OptionsLambda', {
   role: iamForLambda.arn,
-  handler: "index.handler",
+  handler: 'index.handler',
   runtime: 'nodejs16.x',
   code: new pulumi.asset.AssetArchive({
-      "index.js": pulumi.all(allowedOrigins).apply((x) => {return new pulumi.asset.StringAsset(
-`exports.handler = async(event) => {
+    'index.js': pulumi.all(allowedOrigins).apply((x) => {
+      return new pulumi.asset.StringAsset(
+        `exports.handler = async(event) => {
   const allowedOrigins = ${JSON.stringify(x)};
   var headers = {'Access-Control-Allow-Methods': '*',
                  'Access-Control-Allow-Headers': '*',
@@ -404,8 +409,10 @@ const optionsHandler = new aws.lambda.Function('OptionsLambda', {
     headers: headers,
   };
   return response;
-  }`)}),
-  })
+  }`
+      );
+    }),
+  }),
 });
 
 const optionsPermission = new aws.lambda.Permission(
@@ -427,17 +434,25 @@ const optionsIntegration = new aws.apigatewayv2.Integration('OptionsIntegration'
   payloadFormatVersion: '1.0',
 });
 
-const optionsRoute = new aws.apigatewayv2.Route('OptionsRoute', {
-  apiId: httpApi.id,
-  routeKey: 'OPTIONS /{proxy+}',
-  target: pulumi.interpolate`integrations/${optionsIntegration.id}`,
-}, { dependsOn: [optionsIntegration] });
+const optionsRoute = new aws.apigatewayv2.Route(
+  'OptionsRoute',
+  {
+    apiId: httpApi.id,
+    routeKey: 'OPTIONS /{proxy+}',
+    target: pulumi.interpolate`integrations/${optionsIntegration.id}`,
+  },
+  { dependsOn: [optionsIntegration] }
+);
 
-const stage = new aws.apigatewayv2.Stage('ApiStage', {
-  name: '$default',
-  apiId: httpApi.id,
-  autoDeploy: true
-}, { dependsOn: [defaultRoute, optionsRoute] });
+const stage = new aws.apigatewayv2.Stage(
+  'ApiStage',
+  {
+    name: '$default',
+    apiId: httpApi.id,
+    autoDeploy: true,
+  },
+  { dependsOn: [defaultRoute, optionsRoute] }
+);
 
 export interface PathHashResourceInputs {
   path: pulumi.Input<string>;
@@ -453,51 +468,45 @@ interface PathHashOutputs {
 
 const pathHashProvider: pulumi.dynamic.ResourceProvider = {
   async create(inputs: PathHashInputs) {
-      const pathHash = await hashElement(inputs.path);
-      return { id: inputs.path, 
-               outs: {hash: pathHash.toString()}};
+    const pathHash = await hashElement(inputs.path);
+    return { id: inputs.path, outs: { hash: pathHash.toString() } };
   },
-  async diff(id: string,
-             previousOutput: PathHashOutputs,
-             news: PathHashInputs): Promise<pulumi.dynamic.DiffResult> {
-      
-      const replaces: string[] = [];
-      let changes = true;
+  async diff(id: string, previousOutput: PathHashOutputs, news: PathHashInputs): Promise<pulumi.dynamic.DiffResult> {
+    const replaces: string[] = [];
+    let changes = true;
 
-      const oldHash = previousOutput.hash;
-      const newHash = await hashElement(news.path);
+    const oldHash = previousOutput.hash;
+    const newHash = await hashElement(news.path);
 
-      if (oldHash === newHash.toString()) {
-          changes = false;
-      }
-      
-      return {
-          deleteBeforeReplace: false,
-          replaces: replaces,
-          changes: changes,
-      };
+    if (oldHash === newHash.toString()) {
+      changes = false;
+    }
+
+    return {
+      deleteBeforeReplace: false,
+      replaces: replaces,
+      changes: changes,
+    };
   },
   async update(id, olds: PathHashInputs, news: PathHashInputs) {
-      const pathHash = await hashElement(news.path);
-      return { outs: {hash: pathHash.toString()} };
-  }
-}
+    const pathHash = await hashElement(news.path);
+    return { outs: { hash: pathHash.toString() } };
+  },
+};
 
 export class PathHash extends pulumi.dynamic.Resource {
   public readonly hash!: pulumi.Output<string>;
-  constructor(name: string,
-              args: PathHashResourceInputs,
-              opts?: pulumi.CustomResourceOptions) {
-      super(pathHashProvider, name, { hash: undefined, ...args }, opts);
+  constructor(name: string, args: PathHashResourceInputs, opts?: pulumi.CustomResourceOptions) {
+    super(pathHashProvider, name, { hash: undefined, ...args }, opts);
   }
 }
 
-let staticHash = new PathHash("StaticHash", {
-  path: staticPath!
+let staticHash = new PathHash('StaticHash', {
+  path: staticPath!,
 });
 
-let prerenderedHash = new PathHash("PrerenderedHash", {
-  path: prerenderedPath!
+let prerenderedHash = new PathHash('PrerenderedHash', {
+  path: prerenderedPath!,
 });
 
 const invalidationCommand = new local.Command(

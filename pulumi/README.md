@@ -6,7 +6,7 @@ A simple REST API that counts the number of times a route has been hit. For a de
 
 ## Deploying and running the program
 
-Note: some values in this example will be different from run to run.  These values are indicated
+Note: some values in this example will be different from run to run. These values are indicated
 with `***`.
 
 1.  Create a new stack:
@@ -32,17 +32,17 @@ with `***`.
 
     Updating (count-api-testing):
 
-         Type                                Name                                 Status      
-     +   pulumi:pulumi:Stack                 aws-ts-apigateway-count-api-testing  created     
-     +   ├─ aws:apigateway:x:API             hello-world                          created     
-     +   │  ├─ aws:iam:Role                  hello-world4fcc7b60                  created     
-     +   │  ├─ aws:iam:RolePolicyAttachment  hello-world4fcc7b60-32be53a2         created     
-     +   │  ├─ aws:lambda:Function           hello-world4fcc7b60                  created     
-     +   │  ├─ aws:apigateway:RestApi        hello-world                          created     
-     +   │  ├─ aws:apigateway:Deployment     hello-world                          created     
-     +   │  ├─ aws:lambda:Permission         hello-world-a552609d                 created     
-     +   │  └─ aws:apigateway:Stage          hello-world                          created     
-     +   └─ aws:dynamodb:Table               counterTable                         created     
+         Type                                Name                                 Status
+     +   pulumi:pulumi:Stack                 aws-ts-apigateway-count-api-testing  created
+     +   ├─ aws:apigateway:x:API             hello-world                          created
+     +   │  ├─ aws:iam:Role                  hello-world4fcc7b60                  created
+     +   │  ├─ aws:iam:RolePolicyAttachment  hello-world4fcc7b60-32be53a2         created
+     +   │  ├─ aws:lambda:Function           hello-world4fcc7b60                  created
+     +   │  ├─ aws:apigateway:RestApi        hello-world                          created
+     +   │  ├─ aws:apigateway:Deployment     hello-world                          created
+     +   │  ├─ aws:lambda:Permission         hello-world-a552609d                 created
+     +   │  └─ aws:apigateway:Stage          hello-world                          created
+     +   └─ aws:dynamodb:Table               counterTable                         created
 
     Outputs:
         endpoint: "https://***execute-api.us-east-2.amazonaws.com/stage/"

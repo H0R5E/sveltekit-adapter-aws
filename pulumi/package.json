@@ -1,15 +1,15 @@
 {
-    "name": "sveltekit-adapter-aws",
-    "version": "0.1.0",
-    "devDependencies": {
-        "@types/folder-hash": "^4.0.2",
-        "@types/mime": "^3.0.1",
-        "@types/node": "^18.0.0"
-    },
-    "dependencies": {
-        "@pulumi/aws": "^5.0.0",
-        "@pulumi/command": "^0.7.1",
-        "@pulumi/pulumi": "^3.0.0",
-        "folder-hash": "^4.0.4"
-    }
+  "name": "sveltekit-adapter-aws",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@types/folder-hash": "^4.0.2",
+    "@types/mime": "^3.0.1",
+    "@types/node": "^18.0.0"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^5.0.0",
+    "@pulumi/command": "^0.7.1",
+    "@pulumi/pulumi": "^3.0.0",
+    "folder-hash": "^4.0.4"
+  }
 }
