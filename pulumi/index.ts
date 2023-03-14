@@ -505,20 +505,20 @@ let staticHash = new PathHash('StaticHash', {
   path: staticPath!,
 });
 
-let prerenderedHash = new PathHash('PrerenderedHash', {
-  path: prerenderedPath!,
-});
+// let prerenderedHash = new PathHash('PrerenderedHash', {
+//   path: prerenderedPath!,
+// });
 
-const invalidationCommand = new local.Command(
-  'Invalidate',
-  {
-    create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
-    triggers: [staticHash.hash, prerenderedHash.hash],
-  },
-  {
-    dependsOn: [distribution],
-  }
-);
+// const invalidationCommand = new local.Command(
+//   'Invalidate',
+//   {
+//     create: pulumi.interpolate`aws cloudfront create-invalidation --distribution-id ${distribution.id} --paths /\*`,
+//     triggers: [staticHash.hash, prerenderedHash.hash],
+//   },
+//   {
+//     dependsOn: [distribution],
+//   }
+// );
 
 exports.appUrl = process.env.FQDN
   ? `https://${process.env.FQDN}`
