@@ -26,7 +26,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest"
   },
   "devDependencies": {
     "@types/folder-hash": "^4.0.2",
@@ -37,7 +38,8 @@
     "@types/node-fetch": "2.6.2",
     "@types/set-cookie-parser": "^2.4.2",
     "prettier": "2.8.4",
-    "typescript": "4.9.5"
+    "typescript": "4.9.5",
+    "vitest": "^0.29.2"
   },
   "dependencies": {
     "@aws-cdk/aws-apigatewayv2-alpha": "2.66.0-alpha.0",

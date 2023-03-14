@@ -29,7 +29,7 @@ export async function handler(event) {
       },
     }
   );
-
+  
   if (rendered) {
     const resp = {
       statusCode: rendered.status,
