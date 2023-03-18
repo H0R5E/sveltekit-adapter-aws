@@ -24,10 +24,11 @@
     "destroy": "bin/destroy.js"
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
+    "build": "tsc --excludeFiles test",
+    "watch": "tsc -w --excludeFiles test",
     "format": "prettier --write .",
-    "test": "vitest"
+    "test": "vitest",
+    "clean": "tsc --build --clean"
   },
   "devDependencies": {
     "@types/folder-hash": "^4.0.2",
