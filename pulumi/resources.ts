@@ -91,8 +91,13 @@ export function buildServer(
 }
 
 export function validateCertificate(FQDN: string, domainName: string): pulumi.Output<string> {
+  
+  if (!FQDN.includes(domainName)) {
+    throw new Error('FQDN must contain domainName');
+  }
+  
   let eastRegion = new aws.Provider('east', { region: 'us-east-1' });
-
+  
   const certificate = new aws.acm.Certificate(
     'Certificate',
     {
@@ -107,7 +112,7 @@ export function validateCertificate(FQDN: string, domainName: string): pulumi.Ou
     privateZone: false,
   });
 
-  const certValidation = new aws.route53.Record(`${FQDN}.validation`, {
+  const validationRecord = new aws.route53.Record(`${FQDN}.validation`, {
     name: certificate.domainValidationOptions[0].resourceRecordName,
     records: [certificate.domainValidationOptions[0].resourceRecordValue],
     ttl: 60,
@@ -119,7 +124,7 @@ export function validateCertificate(FQDN: string, domainName: string): pulumi.Ou
     'CertificateValidation',
     {
       certificateArn: certificate.arn,
-      validationRecordFqdns: [certValidation.fqdn],
+      validationRecordFqdns: [validationRecord.fqdn],
     },
     { provider: eastRegion }
   );

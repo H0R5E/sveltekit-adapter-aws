@@ -20,8 +20,9 @@ vi.mock('child_process', () => ({
   spawnSync: vi.fn(),
 }));
 
+
 class MyMocks implements Mocks {
-  public resources: { [key: string]: string } = {};
+  public resources: { [key: string]: Record<string, any> } = {};
   newResource(args: pulumi.runtime.MockResourceArgs): {
     id: string | undefined;
     state: Record<string, any>;
@@ -35,11 +36,18 @@ class MyMocks implements Mocks {
         arn: `${args.name}-arn`,
         zoneId: `${args.name}-zone`,
         domainName: 'example.com',
-        hostedZoneId: 'mock',
+        fqdn: 'server.example.com',
+        hostedZoneId: `${args.name}-hostedZone`,
         apiEndpoint: 'https://example.com',
+        domainValidationOptions: [
+          {
+            resourceRecordName: `${args.name}-resourceRecordName`,
+            resourceRecordValue: `${args.name}-resourceRecordValue`,
+          }
+        ]
       },
     };
-    const resource = {
+    const resource: Record<string, any> = {
       type: args.type,
       id,
       ...outputs.state,
@@ -55,6 +63,15 @@ class MyMocks implements Mocks {
 // Convert a pulumi.Output to a promise of the same type.
 function promiseOf<T>(output: pulumi.Output<T>): Promise<T> {
   return new Promise((resolve) => output.apply(resolve));
+}
+
+function findResource(mocks: MyMocks, resourceType: string): Record<string, any> | undefined {
+  for (const resource in mocks.resources) {
+    if (mocks.resources[resource].type === resourceType) {
+      return mocks.resources[resource]
+    }
+  }
+  return undefined
 }
 
 describe('Pulumi IAC', () => {
@@ -115,7 +132,6 @@ describe('Pulumi IAC', () => {
   it('getLambdaRole', async () => {
     const test = infra.getLambdaRole();
     const assumeRolePolicy = await promiseOf(test.assumeRolePolicy);
-    console.log('Here');
     const statement = JSON.parse(assumeRolePolicy).Statement[0];
 
     expectTypeOf(test).toEqualTypeOf<aws.iam.Role>();
@@ -125,20 +141,109 @@ describe('Pulumi IAC', () => {
   });
 
   it('buildServer', async () => {
+    
+    const memorySize = 128;
+    const serverPath = 'mock'
+    
     const iamForLambda = infra.getLambdaRole();
-    const { httpApi, defaultRoute } = infra.buildServer(iamForLambda, 'mock', 128, {});
-
+    const { httpApi, defaultRoute } = infra.buildServer(iamForLambda, serverPath, memorySize, {});
+    
     const protocolType = await promiseOf(httpApi.protocolType);
-    const apiId = await promiseOf(defaultRoute.apiId);
-    const routeKey = await promiseOf(defaultRoute.routeKey);
-    const target = await promiseOf(defaultRoute.target);
-
-    console.log(mocks.resources);
+    const expectedApiId = await promiseOf(httpApi.id);
+    const executionArn = await promiseOf(httpApi.executionArn);
+    
     expectTypeOf(httpApi).toEqualTypeOf<aws.apigatewayv2.Api>();
-    expectTypeOf(defaultRoute).toEqualTypeOf<aws.apigatewayv2.Route>();
     expect(protocolType).toMatch('HTTP');
-    expect(apiId).toMatch('API-id');
+    
+    const routeKey = await promiseOf(defaultRoute.routeKey);
+    const routeApiId = await promiseOf(defaultRoute.apiId);
+    
+    expectTypeOf(defaultRoute).toEqualTypeOf<aws.apigatewayv2.Route>();
     expect(routeKey).toMatch('$default');
-    expect(target).toMatch('integrations/ServerIntegration-id');
+    expect(routeApiId).toMatch(expectedApiId);
+    
+    const target = await promiseOf(defaultRoute.target);
+    const integrationMatch = target!.match("integrations/(.*?)-id")
+    const serverIntegrationName = integrationMatch![1];
+    
+    expect(mocks.resources).toHaveProperty(serverIntegrationName)
+    const serverIntegration = mocks.resources[serverIntegrationName]
+    
+    expect(serverIntegration.type).toMatch('aws:apigatewayv2/integration:Integration');
+    expect(serverIntegration.apiId).toMatch(expectedApiId);
+    expect(serverIntegration.integrationMethod).toMatch('POST');
+    expect(serverIntegration.integrationType).toMatch('AWS_PROXY');
+    expect(serverIntegration.payloadFormatVersion).toMatch('1.0');
+    
+    const lambdaMatch = serverIntegration.integrationUri.match("(.*?)-arn")
+    const lambdaIntegrationName = lambdaMatch![1];
+    
+    expect(mocks.resources).toHaveProperty(lambdaIntegrationName)
+    const lambda = mocks.resources[lambdaIntegrationName]
+    const iamArn = await promiseOf(iamForLambda.arn);
+    const codePath = await lambda.code.path;
+    
+    expect(lambda.type).toMatch('aws:lambda/function:Function');
+    expect(lambda.handler).toMatch('index.handler');
+    expect(lambda.memorySize).toEqual(memorySize);
+    expect(lambda.runtime).toMatch('nodejs16.x');
+    expect(lambda.timeout).toEqual(900);
+    expect(lambda.role).toMatch(iamArn);
+    expect(codePath).toMatch(serverPath);
+    
+    // Can't access role in mock outputs for RolePolicyAttachment
+    const RPA = findResource(mocks, 'aws:iam/rolePolicyAttachment:RolePolicyAttachment')
+    expect(RPA).toBeDefined();
+    expect(RPA!.policyArn).toMatch('arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole')
+    
+    const serverPermission = findResource(mocks, 'aws:lambda/permission:Permission')
+    expect(serverPermission).toBeDefined();
+    expect(serverPermission!.action).toMatch('lambda:InvokeFunction')
+    expect(serverPermission!.principal).toMatch('apigateway.amazonaws.com')
+    
+    const sourceArnMatch = serverPermission!.sourceArn.match("(.*?)/\\*/\\*")
+    const sourceArn = sourceArnMatch![1];
+    expect(sourceArn).toMatch(executionArn);
+    
+    const functionId = await promiseOf(serverPermission!.function.id);
+    expect(functionId).toMatch(lambda.id);
+    
   });
+  
+  it('validateCertificate-Wrong-Domain', async () => {
+    const FQDN = "server.example.com"
+    const domainName = "another.com"
+    expect(() => infra.validateCertificate(FQDN, domainName)).toThrowError("FQDN must contain domainName")
+  });
+  
+  // Not sure how to capture the provider for the certificate or the pre-existing hosted zone
+  it('validateCertificate', async () => {
+    
+    const FQDN = "server.example.com"
+    const domainName = "example.com"
+    
+    const certificateArn = await promiseOf(infra.validateCertificate(FQDN, domainName))
+    const certificateValidation = findResource(mocks, 'aws:acm/certificateValidation:CertificateValidation')
+    
+    expect(certificateValidation!.certificateArn).toMatch(certificateArn)
+    expect(certificateValidation!.validationRecordFqdns[0]).toMatch("server.example.com")
+    
+    const validationRecord = findResource(mocks, 'aws:route53/record:Record')
+    const certificateMatch = validationRecord!.name.match("(.*?)-resourceRecordName")
+    const certificateName = certificateMatch![1];
+    
+    expect(mocks.resources).toHaveProperty(certificateName)
+    const certificate = mocks.resources[certificateName]
+    
+    // The type input to aws:route53/record:Record isn't handled
+    expect(certificate.type).toMatch('aws:acm/certificate:Certificate');
+    expect(certificate.domainName).toMatch(domainName)
+    expect(certificate.validationMethod).toMatch('DNS')
+    
+    expect(validationRecord!.name).toMatch(certificate.domainValidationOptions[0].resourceRecordName)
+    expect(validationRecord!.records[0]).toMatch(certificate.domainValidationOptions[0].resourceRecordValue)
+    expect(validationRecord!.ttl).toEqual(60)
+    
+  });
+  
 });
