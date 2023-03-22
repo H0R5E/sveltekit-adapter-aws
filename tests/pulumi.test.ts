@@ -266,11 +266,12 @@ describe('Pulumi IAC', () => {
     var fileArray = ['a.mock', path.join('child', 'b.mock')]
     
     for (let fileName of fileArray) {
-      expect(mocks.resources).toHaveProperty(fileName)
+      const posixFilePath = fileName.split(path.sep).join(path.posix.sep)
+      expect(mocks.resources).toHaveProperty(posixFilePath)
       
-      const item = mocks.resources[fileName]
+      const item = mocks.resources[posixFilePath]
       expect(item.type).toMatch('aws:s3/bucketObject:BucketObject')
-      expect(item.key).toMatch(fileName)
+      expect(item.key).toMatch(posixFilePath)
       expect(item.bucket).toMatch(bucketId)
       
       const sourcePath = await item.source.path

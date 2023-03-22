@@ -166,10 +166,11 @@ export function uploadStatic(dirPath: string, bucket: aws.s3.Bucket) {
   console.log('Syncing contents from local disk at', dirPath);
   crawlDirectory(dirPath, (filePath: string) => {
     const relativeFilePath = filePath.replace(dirPath + path.sep, '');
+    const posixFilePath = relativeFilePath.split(path.sep).join(path.posix.sep)
     const contentFile = new aws.s3.BucketObject(
-      relativeFilePath,
+      posixFilePath,
       {
-        key: relativeFilePath,
+        key: posixFilePath,
         bucket: bucket.id,
         contentType: mime.getType(filePath) || undefined,
         source: new pulumi.asset.FileAsset(filePath),
