@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as mime from 'mime';
+import * as path from 'path';
 
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
@@ -137,21 +138,21 @@ export function buildStatic(staticPath: string, prerenderedPath: string): aws.s3
     acl: 'private',
     forceDestroy: true,
   });
-  uploadStatic(staticPath, bucket);
-  uploadStatic(prerenderedPath, bucket);
+  exports.uploadStatic(staticPath, bucket);
+  exports.uploadStatic(prerenderedPath, bucket);
   return bucket;
 }
 
 // Sync the contents of the source directory with the S3 bucket, which will
 // in-turn show up on the CDN.
-function uploadStatic(path: string, bucket: aws.s3.Bucket) {
+export function uploadStatic(dirPath: string, bucket: aws.s3.Bucket) {
   // crawlDirectory recursive crawls the provided directory, applying the
   // provided function to every file it contains. Doesn't handle cycles from
   // symlinks.
   function crawlDirectory(dir: string, f: (_: string) => void) {
     const files = fs.readdirSync(dir);
     for (const file of files) {
-      const filePath = `${dir}/${file}`;
+      const filePath = path.join(dir, file);
       const stat = fs.statSync(filePath);
       if (stat.isDirectory()) {
         crawlDirectory(filePath, f);
@@ -162,9 +163,9 @@ function uploadStatic(path: string, bucket: aws.s3.Bucket) {
     }
   }
 
-  console.log('Syncing contents from local disk at', path);
-  crawlDirectory(path, (filePath: string) => {
-    const relativeFilePath = filePath.replace(path + '/', '');
+  console.log('Syncing contents from local disk at', dirPath);
+  crawlDirectory(dirPath, (filePath: string) => {
+    const relativeFilePath = filePath.replace(dirPath + path.sep, '');
     const contentFile = new aws.s3.BucketObject(
       relativeFilePath,
       {

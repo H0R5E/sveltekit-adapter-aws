@@ -246,4 +246,44 @@ describe('Pulumi IAC', () => {
     
   });
   
+  it('uploadStatic', async () => {
+    
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), randomUUID()));
+    const childDir = path.join(tmpDir, 'child');
+    
+    fs.mkdirSync(childDir);
+    fs.closeSync(fs.openSync(path.join(tmpDir, 'a.mock'), 'w'));
+    fs.closeSync(fs.openSync(path.join(childDir, 'b.mock'), 'w'));
+    
+    const bucket = new aws.s3.Bucket('MockBucket');
+    const bucketId = await promiseOf(bucket.id)
+    infra.uploadStatic(tmpDir, bucket)
+    
+    fs.rmSync(tmpDir, { recursive: true });
+    
+    // Need to wait for callback to complete
+    await new Promise(r => setTimeout(r, 100));
+    var fileArray = ['a.mock', path.join('child', 'b.mock')]
+    
+    for (let fileName of fileArray) {
+      expect(mocks.resources).toHaveProperty(fileName)
+      
+      const item = mocks.resources[fileName]
+      expect(item.type).toMatch('aws:s3/bucketObject:BucketObject')
+      expect(item.key).toMatch(fileName)
+      expect(item.bucket).toMatch(bucketId)
+      
+      const sourcePath = await item.source.path
+      expect(sourcePath).toContain(fileName)
+    }
+    
+  });
+  
+  it('buildStatic', async () => {
+    const spy = vi.spyOn(infra, "uploadStatic");
+    infra.buildStatic('mock', 'mock')
+    expect(spy).toHaveBeenCalledTimes(2)
+  });
+  
+  
 });
