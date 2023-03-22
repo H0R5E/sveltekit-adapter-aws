@@ -44,7 +44,8 @@ class MyMocks implements Mocks {
             resourceRecordName: `${args.name}-resourceRecordName`,
             resourceRecordValue: `${args.name}-resourceRecordValue`,
           }
-        ]
+        ],
+        bucketRegionalDomainName: 'bucket.s3.mock-west-1.amazonaws.com'
       },
     };
     const resource: Record<string, any> = {
@@ -261,7 +262,7 @@ describe('Pulumi IAC', () => {
     
     fs.rmSync(tmpDir, { recursive: true });
     
-    // Need to wait for callback to complete
+    // Need to wait for the mocks to update
     await new Promise(r => setTimeout(r, 100));
     var fileArray = ['a.mock', path.join('child', 'b.mock')]
     
@@ -281,9 +282,81 @@ describe('Pulumi IAC', () => {
   });
   
   it('buildStatic', async () => {
-    const spy = vi.spyOn(infra, "uploadStatic");
+    const spy = vi.spyOn(infra, "uploadStatic").mockImplementation(() => null);
     infra.buildStatic('mock', 'mock')
     expect(spy).toHaveBeenCalledTimes(2)
+    
+    // Need to wait for the mocks to update
+    await new Promise(r => setTimeout(r, 100));
+    
+    expect(Object.keys(mocks.resources)).toHaveLength(1)
+    const resource = Object.values(mocks.resources)[0]
+    
+    expect(resource.type).toMatch('aws:s3/bucket:Bucket')
+    expect(resource.acl).toMatch('private')
+    expect(resource.forceDestroy).toBe(true)
+    
+  });
+  
+  it('buildCDN', async () => {
+    
+    const httpApi = new aws.apigatewayv2.Api('MockAPI', {
+      protocolType: 'HTTP',
+    });
+    const bucket = new aws.s3.Bucket('MockBucket');
+    const certificateArn = 'MockCertificateArn'
+    const routes = ["mock/*"]
+    
+    const distribution = infra.buildCDN(
+      httpApi,
+      bucket,
+      certificateArn,
+      routes)
+    
+    const distOrigins = await promiseOf(distribution.origins)
+    console.log(distOrigins)
+    
+    expect(distOrigins).toHaveLength(2)
+    
+    let customOriginIndex: number | undefined
+    
+    for (const [i, value] of distOrigins.entries()) {
+      if (value.hasOwnProperty('customOriginConfig')) {
+        customOriginIndex = i
+        break
+      }
+    }
+    
+    expect(customOriginIndex).toBeDefined()
+    const customOrigin = distOrigins[customOriginIndex!]
+    expect(customOrigin.domainName).toMatch('example.com')
+    expect(customOrigin.customOriginConfig!.httpPort).toBe(80)
+    expect(customOrigin.customOriginConfig!.httpsPort).toBe(443)
+    expect(customOrigin.customOriginConfig!.originProtocolPolicy).toMatch('https-only')
+    expect(customOrigin.customOriginConfig!.originSslProtocols).toEqual([
+      'SSLv3', 'TLSv1', 'TLSv1.1', 'TLSv1.2'
+    ])
+    
+    let s3OriginIndex: number | undefined
+    
+    for (const [i, value] of distOrigins.entries()) {
+      if (value.hasOwnProperty('originAccessControlId')) {
+        s3OriginIndex = i
+        break
+      }
+    }
+    
+    expect(s3OriginIndex).toBeDefined()
+    const s3Origin = distOrigins[s3OriginIndex!]
+    expect(s3Origin.domainName).toMatch('bucket.s3.mock-west-1.amazonaws.com')
+    
+    const oacMatch = s3Origin.originAccessControlId!.match("(.*?)-id")
+    const oacName = oacMatch![1];
+    const oac = mocks.resources[oacName];
+    
+    console.log(oac)
+    expect(oac.type).toMatch('aws:cloudfront/originAccessControl:OriginAccessControl')
+    
   });
   
   
