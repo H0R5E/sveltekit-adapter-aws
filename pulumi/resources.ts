@@ -349,27 +349,7 @@ function buildBehavior(route: string, headers: string[]) {
 // Creates a new Route53 DNS record pointing the domain to the CloudFront
 // distribution.
 export function createAliasRecord(targetDomain: string, distribution: aws.cloudfront.Distribution): aws.route53.Record {
-  // Split a domain name into its subdomain and parent domain names.
-  // e.g. "www.example.com" => "www", "example.com".
-  function getDomainAndSubdomain(domain: string): { subdomain: string; parentDomain: string } {
-    const parts = domain.split('.');
-    if (parts.length < 2) {
-      throw new Error(`No TLD found on ${domain}`);
-    }
-    // No subdomain, e.g. awesome-website.com.
-    if (parts.length === 2) {
-      return { subdomain: '', parentDomain: domain };
-    }
-    const subdomain = parts[0];
-    parts.shift(); // Drop first element.
-    return {
-      subdomain,
-      // Trailing "." to canonicalize domain.
-      parentDomain: parts.join('.') + '.',
-    };
-  }
-
-  const domainParts = getDomainAndSubdomain(targetDomain);
+  const domainParts = exports.getDomainAndSubdomain(targetDomain);
   const hostedZoneId = aws.route53
     .getZone({ name: domainParts.parentDomain }, { async: true })
     .then((zone) => zone.zoneId);
@@ -385,6 +365,26 @@ export function createAliasRecord(targetDomain: string, distribution: aws.cloudf
       },
     ],
   });
+}
+
+// Split a domain name into its subdomain and parent domain names.
+// e.g. "www.example.com" => "www", "example.com".
+export function getDomainAndSubdomain(domain: string): { subdomain: string; parentDomain: string } {
+  const parts = domain.split('.');
+  if (parts.length < 2) {
+    throw new Error(`No TLD found on ${domain}`);
+  }
+  // No subdomain, e.g. awesome-website.com.
+  if (parts.length === 2) {
+    return { subdomain: '', parentDomain: domain };
+  }
+  const subdomain = parts[0];
+  parts.shift(); // Drop first element.
+  return {
+    subdomain,
+    // Trailing "." to canonicalize domain.
+    parentDomain: parts.join('.') + '.',
+  };
 }
 
 export function buildServerOptionsHandler(

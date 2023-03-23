@@ -57,7 +57,6 @@ class MyMocks implements Mocks {
     return outputs;
   }
   call(args: pulumi.runtime.MockCallArgs): Record<string, any> {
-    console.log(args.token)
     let result = {id: `${args.token}-id`,
                   ...args.inputs};
     if (args.token == 'aws:iam/getPolicyDocument:getPolicyDocument') {
@@ -467,8 +466,71 @@ describe('Pulumi IAC', () => {
     expect(httpsStatement.conditions[0].variable).toMatch('aws:SecureTransport')
     expect(httpsStatement.conditions[0].values).toEqual([ 'false' ])
     
-
   });
   
+  it('buildCDN-No-FQDN', async () => {
+    
+    const httpApi = new aws.apigatewayv2.Api('MockAPI', {
+      protocolType: 'HTTP',
+    });
+    const bucket = new aws.s3.Bucket('MockBucket');
+    const routes = ["mock/*", "another/*"]
+    const serverHeaders = ['mock1', 'mock2']
+    const staticHeaders = ['mock3']
+    
+    const distribution = infra.buildCDN(
+      httpApi,
+      bucket,
+      routes,
+      serverHeaders,
+      staticHeaders,
+      undefined,
+      undefined)
+    
+    const distAliases = await promiseOf(distribution.aliases)
+    const distViewerCertificate = await promiseOf(distribution.viewerCertificate)
+    
+    expect(distAliases).toBeUndefined()
+    expect(distViewerCertificate.cloudfrontDefaultCertificate).toBe(true)
+    
+  });
+  
+  it('createAliasRecord', async () => {
+    
+    const hostedZoneId = 'mockZone-Id'
+    const domainName = 'bob.com'
+    const targetDomain = 'mock.example.com'
+    const domainParts = targetDomain.split('.');
+    const distribution: Partial<aws.cloudfront.Distribution> = { 
+      domainName: pulumi.Output.create(domainName),
+      hostedZoneId: pulumi.Output.create(hostedZoneId)
+    };
+    
+    const record = infra.createAliasRecord(targetDomain, <aws.cloudfront.Distribution> distribution)
+    const recordName = await promiseOf(record.name)
+    const recordZoneId = await promiseOf(record.zoneId)
+    const recordType = await promiseOf(record.type)
+    const recordAliases = await promiseOf(record.aliases)
+    
+    expect(recordName).toMatch(domainParts[0])
+    expect(recordZoneId).toMatch(`${targetDomain}-zone`)
+    expect(recordType).toMatch('A')
+    
+    expect(recordAliases).toHaveLength(1)
+    expect(recordAliases![0].evaluateTargetHealth).toBe(true)
+    expect(recordAliases![0].name).toMatch(domainName),
+    expect(recordAliases![0].zoneId).toMatch(hostedZoneId)
+    
+  });
+  
+  it.each([
+    ["www.example.com", "www", "example.com"],
+    ["www.example.co.uk", "www", "example.co.uk"],
+    ["example.com", "", "example.com"]
+  ])('getDomainAndSubdomain[%s]', async (domain, sub, parent) => {
+    const { subdomain, parentDomain } = infra.getDomainAndSubdomain(domain)
+    expect(subdomain).toMatch(sub)
+    expect(parentDomain).toMatch(parent)
+  });
   
 });
