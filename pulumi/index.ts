@@ -22,6 +22,8 @@ const memorySize = parseInt(process.env.MEMORY_SIZE!) || 128;
 const [_, zoneName, ...MLDs] = process.env.FQDN?.split('.') || [];
 const domainName = [zoneName, ...MLDs].join('.');
 const routes = process.env.ROUTES?.split(',') || [];
+const serverHeaders = process.env.SERVER_HEADERS?.split(',') || [];
+const staticHeaders = process.env.STATIC_HEADERS?.split(',') || [];
 
 const dotenv = config({ path: projectPath });
 const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
@@ -37,7 +39,7 @@ if (process.env.FQDN) {
 }
 
 const bucket = buildStatic(staticPath, prerenderedPath);
-const distribution = buildCDN(httpApi, bucket, routes, process.env.FQDN, certificateArn);
+const distribution = buildCDN(httpApi, bucket, routes, serverHeaders, staticHeaders, process.env.FQDN, certificateArn);
 
 if (process.env.FQDN) {
   createAliasRecord(process.env.FQDN, distribution);

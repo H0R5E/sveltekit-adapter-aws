@@ -186,6 +186,8 @@ export function buildCDN(
   httpApi: aws.apigatewayv2.Api,
   bucket: aws.s3.Bucket,
   routes: string[],
+  serverHeaders: string[],
+  staticHeaders: string[],
   FQDN?: string,
   certificateArn?: pulumi.Input<string>
 ): aws.cloudfront.Distribution {
@@ -200,17 +202,7 @@ export function buildCDN(
     headersConfig: {
       headerBehavior: 'whitelist',
       headers: {
-        items: [
-          'Origin',
-          'Accept-Charset',
-          'Accept',
-          'Access-Control-Request-Method',
-          'Access-Control-Request-Headers',
-          'Referer',
-          'Accept-Language',
-          'Accept-Datetime',
-          'X-Auth-Return-Redirect',
-        ],
+        items: serverHeaders,
       },
     },
     queryStringsConfig: {
@@ -269,7 +261,7 @@ export function buildCDN(
       cachePolicyId: disabledCachePolicy.apply((policy) => policy.id!),
       targetOriginId: 'httpOrigin',
     },
-    orderedCacheBehaviors: routes.map(buildBehavior),
+    orderedCacheBehaviors: routes.map((x) => buildBehavior(x, staticHeaders)),
     restrictions: {
       geoRestriction: {
         restrictionType: 'none',
@@ -324,7 +316,7 @@ export function buildCDN(
   return distribution;
 }
 
-function buildBehavior(route: string) {
+function buildBehavior(route: string, headers: string[]) {
   const routeRequestPolicy = new aws.cloudfront.OriginRequestPolicy('RouteRequestPolicy', {
     cookiesConfig: {
       cookieBehavior: 'none',
@@ -332,7 +324,7 @@ function buildBehavior(route: string) {
     headersConfig: {
       headerBehavior: 'whitelist',
       headers: {
-        items: ['User-Agent', 'Referer'],
+        items: headers,
       },
     },
     queryStringsConfig: {
@@ -406,21 +398,21 @@ export function buildServerOptionsHandler(
     code: new pulumi.asset.AssetArchive({
       'index.js': pulumi.all(allowedOrigins).apply((x) => {
         return new pulumi.asset.StringAsset(
-          `exports.handler = async(event) => {
-        const allowedOrigins = ${JSON.stringify(x)};
-        var headers = {'Access-Control-Allow-Methods': '*',
-                       'Access-Control-Allow-Headers': '*',
-                       'Access-Control-Max-Age': 86400,
-                       'Connection': 'keep-alive'};
-        if (allowedOrigins.includes(event.headers.origin)) {
-          headers['Access-Control-Allow-Origin'] = event.headers.origin;
-        }
-        const response = {
-          statusCode: 204,
-          headers: headers,
-        };
-        return response;
-        }`
+         `exports.handler = async(event) => {
+          const allowedOrigins = ${JSON.stringify(x)};
+          var headers = {'Access-Control-Allow-Methods': '*',
+                         'Access-Control-Allow-Headers': '*',
+                         'Access-Control-Max-Age': 86400,
+                         'Connection': 'keep-alive'};
+          if (allowedOrigins.includes(event.headers.origin)) {
+            headers['Access-Control-Allow-Origin'] = event.headers.origin;
+          }
+          const response = {
+            statusCode: 204,
+            headers: headers,
+          };
+          return response;
+          }`
         );
       }),
     }),

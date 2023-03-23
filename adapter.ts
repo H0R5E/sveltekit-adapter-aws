@@ -13,6 +13,8 @@ export interface AWSAdapterProps {
   cdkProjectPath?: string;
   pulumiProjectPath?: string;
   stackName?: string;
+  serverHeaders?: string[];
+  staticHeaders?: string[];
   esbuildOptions?: any;
   FQDN?: string;
   LOG_RETENTION_DAYS?: number;
@@ -28,6 +30,17 @@ export function adapter({
   cdkProjectPath = `${__dirname}/deploy/index.js`,
   pulumiProjectPath = `${__dirname}/pulumi`,
   stackName = 'sveltekit-adapter-aws-webapp',
+  serverHeaders = [
+    'Accept',
+    'Accept-Charset',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers',
+    'Accept-Datetime',
+    'Accept-Language',
+    'Origin',
+    'Referer'
+  ],
+  staticHeaders = ['User-Agent', 'Referer'],
   esbuildOptions = {},
   FQDN,
   LOG_RETENTION_DAYS,
@@ -179,6 +192,8 @@ export function adapter({
                 STATIC_PATH: join(process.cwd(), static_directory),
                 PRERENDERED_PATH: join(process.cwd(), prerendered_directory),
                 ROUTES: routes,
+                SERVER_HEADERS: serverHeaders,
+                STATIC_HEADERS: staticHeaders,
                 FQDN,
                 MEMORY_SIZE,
                 ZONE_NAME: zoneName,
