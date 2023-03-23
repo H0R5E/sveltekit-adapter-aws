@@ -296,6 +296,7 @@ export function buildCDN(
           },
         ],
         actions: ['s3:*'],
+        effect: 'Deny',
         resources: [pulumi.interpolate`${bucket.arn}/\*`, bucket.arn],
         conditions: [
           {

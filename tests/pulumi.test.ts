@@ -57,8 +57,12 @@ class MyMocks implements Mocks {
     return outputs;
   }
   call(args: pulumi.runtime.MockCallArgs): Record<string, any> {
+    console.log(args.token)
     let result = {id: `${args.token}-id`,
                   ...args.inputs};
+    if (args.token == 'aws:iam/getPolicyDocument:getPolicyDocument') {
+      result['json'] = JSON.stringify(args.inputs)
+    }
     return result
   }
 }
@@ -312,6 +316,8 @@ describe('Pulumi IAC', () => {
     const staticHeaders = ['mock3']
     const FQDN = "server.example.com"
     const certificateArn = 'MockCertificateArn'
+    const bucketId = await promiseOf(bucket.id)
+    const bucketArn = await promiseOf(bucket.arn)
     
     const distribution = infra.buildCDN(
       httpApi,
@@ -373,6 +379,7 @@ describe('Pulumi IAC', () => {
     const distViewerCertificate = await promiseOf(distribution.viewerCertificate)
     const distDefaultCacheBehavior = await promiseOf(distribution.defaultCacheBehavior)
     const distOrderedCacheBehaviors = await promiseOf(distribution.orderedCacheBehaviors)
+    const distArn = await promiseOf(distribution.arn)
     
     expect(distAliases).toContain(FQDN)
     expect(distEnabled).toBe(true)
@@ -393,17 +400,73 @@ describe('Pulumi IAC', () => {
     expect(distDefaultCacheBehavior.targetOriginId).toMatch(customOrigin.originId)
     expect(distDefaultCacheBehavior.cachePolicyId).toMatch('aws:cloudfront/getCachePolicy:getCachePolicy-id')
     
-    const requestPolicyMatch = distDefaultCacheBehavior.originRequestPolicyId!.match("(.*?)-id")
-    const requestPolicyName = requestPolicyMatch![1];
-    const requestPolicy = mocks.resources[requestPolicyName];
+    const originRequestPolicyMatch = distDefaultCacheBehavior.originRequestPolicyId!.match("(.*?)-id")
+    const originRequestPolicyName = originRequestPolicyMatch![1];
+    const originRequestPolicy = mocks.resources[originRequestPolicyName];
     
-    expect(requestPolicy.type).toMatch('aws:cloudfront/originRequestPolicy:OriginRequestPolicy')
-    expect(requestPolicy.cookiesConfig.cookieBehavior).toMatch('all')
-    expect(requestPolicy.headersConfig.headerBehavior).toMatch('whitelist')
-    expect(requestPolicy.headersConfig.headers.items).toEqual(serverHeaders)
-    expect(requestPolicy.queryStringsConfig.queryStringBehavior).toMatch('all')
+    expect(originRequestPolicy.type).toMatch('aws:cloudfront/originRequestPolicy:OriginRequestPolicy')
+    expect(originRequestPolicy.cookiesConfig.cookieBehavior).toMatch('all')
+    expect(originRequestPolicy.headersConfig.headerBehavior).toMatch('whitelist')
+    expect(originRequestPolicy.headersConfig.headers.items).toEqual(serverHeaders)
+    expect(originRequestPolicy.queryStringsConfig.queryStringBehavior).toMatch('all')
     
-    console.log(distOrderedCacheBehaviors)
+    expect(distOrderedCacheBehaviors).toHaveLength(2)
+    
+    let pathPatterns: string[] = []
+    distOrderedCacheBehaviors!.forEach(function (item, index) {
+      pathPatterns.push(item.pathPattern)
+      expect(item.allowedMethods).toEqual(['GET', 'HEAD', 'OPTIONS'])
+      expect(item.cachePolicyId).toMatch('aws:cloudfront/getCachePolicy:getCachePolicy-id')
+      expect(item.cachedMethods).toEqual([ 'GET', 'HEAD', 'OPTIONS' ])
+      expect(item.targetOriginId).toMatch('s3Origin')
+      expect(item.viewerProtocolPolicy).toMatch('redirect-to-https')
+    });
+    
+    expect(pathPatterns).toEqual(routes)
+    
+    const routeRequestPolicyMatch = distOrderedCacheBehaviors![0].originRequestPolicyId!.match("(.*?)-id")
+    const routeRequestPolicyName = routeRequestPolicyMatch![1];
+    const routeRequestPolicy = mocks.resources[routeRequestPolicyName];
+    
+    expect(routeRequestPolicy.type).toMatch('aws:cloudfront/originRequestPolicy:OriginRequestPolicy')
+    expect(routeRequestPolicy.cookiesConfig.cookieBehavior).toMatch('none')
+    expect(routeRequestPolicy.headersConfig.headerBehavior).toMatch('whitelist')
+    expect(routeRequestPolicy.headersConfig.headers.items).toEqual(staticHeaders)
+    expect(routeRequestPolicy.queryStringsConfig.queryStringBehavior).toMatch('none')
+    
+    // Need to wait for the mocks to update
+    await new Promise(r => setTimeout(r, 100));
+    const bucketPolicy = findResource(mocks, 'aws:s3/bucketPolicy:BucketPolicy')
+    const bucketPolicyWording = JSON.parse(bucketPolicy!.policy)
+    
+    expect(bucketPolicy!.bucket).toMatch(bucketId)
+    expect(bucketPolicyWording.statements).toHaveLength(2)
+    
+    const getObjectStatement = bucketPolicyWording.statements[0]
+    
+    expect(getObjectStatement.actions).toEqual([ 's3:GetObject' ])
+    expect(getObjectStatement.principals).toHaveLength(1)
+    expect(getObjectStatement.principals[0].type).toMatch('Service')
+    expect(getObjectStatement.principals[0].identifiers).toEqual([ 'cloudfront.amazonaws.com' ])
+    expect(getObjectStatement.resources).toEqual([ `${bucketArn}/*` ])
+    expect(getObjectStatement.conditions).toHaveLength(1)
+    expect(getObjectStatement.conditions[0].test).toMatch('StringEquals')
+    expect(getObjectStatement.conditions[0].variable).toMatch('AWS:SourceArn')
+    expect(getObjectStatement.conditions[0].values).toEqual([ distArn ])
+    
+    const httpsStatement = bucketPolicyWording.statements[1]
+    
+    expect(httpsStatement.actions).toEqual([ 's3:*' ])
+    expect(httpsStatement.effect).toMatch('Deny')
+    expect(httpsStatement.principals).toHaveLength(1)
+    expect(httpsStatement.principals[0].type).toMatch('AWS')
+    expect(httpsStatement.principals[0].identifiers).toEqual([ '*' ])
+    expect(httpsStatement.resources).toEqual([ `${bucketArn}/*`, bucketArn ])
+    expect(httpsStatement.conditions).toHaveLength(1)
+    expect(httpsStatement.conditions[0].test).toMatch('Bool')
+    expect(httpsStatement.conditions[0].variable).toMatch('aws:SecureTransport')
+    expect(httpsStatement.conditions[0].values).toEqual([ 'false' ])
+    
 
   });
   
