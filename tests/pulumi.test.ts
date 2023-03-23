@@ -57,7 +57,9 @@ class MyMocks implements Mocks {
     return outputs;
   }
   call(args: pulumi.runtime.MockCallArgs): Record<string, any> {
-    return args.inputs;
+    let result = {id: `${args.token}-id`,
+                  ...args.inputs};
+    return result
   }
 }
 
@@ -244,6 +246,7 @@ describe('Pulumi IAC', () => {
     expect(validationRecord!.name).toMatch(certificate.domainValidationOptions[0].resourceRecordName)
     expect(validationRecord!.records[0]).toMatch(certificate.domainValidationOptions[0].resourceRecordValue)
     expect(validationRecord!.ttl).toEqual(60)
+    expect(validationRecord!.zoneId).toMatch(`${FQDN}.validation-zone`)
     
   });
   
@@ -304,7 +307,9 @@ describe('Pulumi IAC', () => {
       protocolType: 'HTTP',
     });
     const bucket = new aws.s3.Bucket('MockBucket');
-    const routes = ["mock/*"]
+    const routes = ["mock/*", "another/*"]
+    const serverHeaders = ['mock1', 'mock2']
+    const staticHeaders = ['mock3']
     const FQDN = "server.example.com"
     const certificateArn = 'MockCertificateArn'
     
@@ -312,6 +317,8 @@ describe('Pulumi IAC', () => {
       httpApi,
       bucket,
       routes,
+      serverHeaders,
+      staticHeaders,
       FQDN,
       certificateArn)
     
@@ -365,6 +372,7 @@ describe('Pulumi IAC', () => {
     const distEnabled = await promiseOf(distribution.enabled)
     const distViewerCertificate = await promiseOf(distribution.viewerCertificate)
     const distDefaultCacheBehavior = await promiseOf(distribution.defaultCacheBehavior)
+    const distOrderedCacheBehaviors = await promiseOf(distribution.orderedCacheBehaviors)
     
     expect(distAliases).toContain(FQDN)
     expect(distEnabled).toBe(true)
@@ -383,13 +391,20 @@ describe('Pulumi IAC', () => {
     expect(distDefaultCacheBehavior.compress).toBe(true)
     expect(distDefaultCacheBehavior.viewerProtocolPolicy).toMatch('redirect-to-https')
     expect(distDefaultCacheBehavior.targetOriginId).toMatch(customOrigin.originId)
+    expect(distDefaultCacheBehavior.cachePolicyId).toMatch('aws:cloudfront/getCachePolicy:getCachePolicy-id')
     
     const requestPolicyMatch = distDefaultCacheBehavior.originRequestPolicyId!.match("(.*?)-id")
     const requestPolicyName = requestPolicyMatch![1];
     const requestPolicy = mocks.resources[requestPolicyName];
     
-    console.log(distribution)
-    console.log(requestPolicy)
+    expect(requestPolicy.type).toMatch('aws:cloudfront/originRequestPolicy:OriginRequestPolicy')
+    expect(requestPolicy.cookiesConfig.cookieBehavior).toMatch('all')
+    expect(requestPolicy.headersConfig.headerBehavior).toMatch('whitelist')
+    expect(requestPolicy.headersConfig.headers.items).toEqual(serverHeaders)
+    expect(requestPolicy.queryStringsConfig.queryStringBehavior).toMatch('all')
+    
+    console.log(distOrderedCacheBehaviors)
+
   });
   
   
