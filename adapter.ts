@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import * as esbuild from 'esbuild';
 import { config } from 'dotenv';
 import { writeFileSync } from 'fs';
-const updateDotenv = require('update-dotenv');
+import updateDotenv from 'update-dotenv';
 
 export interface AWSAdapterProps {
   artifactPath?: string;

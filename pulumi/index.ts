@@ -30,17 +30,17 @@ const environment = { parsed: parsed } as DotenvConfigOutput;
 const iamForLambda = getLambdaRole();
 const { httpApi, defaultRoute } = buildServer(iamForLambda, serverPath, memorySize, environment);
 
-let certificateArn: pulumi.Input<string> = '';
+let certificateArn: pulumi.Input<string> | undefined;
 
 if (process.env.FQDN) {
   certificateArn = validateCertificate(process.env.FQDN, domainName);
 }
 
 const bucket = buildStatic(staticPath, prerenderedPath);
-const distribution = buildCDN(httpApi, bucket, certificateArn, routes);
+const distribution = buildCDN(httpApi, bucket, routes, process.env.FQDN, certificateArn);
 
 if (process.env.FQDN) {
-  const aRecord = createAliasRecord(process.env.FQDN, distribution);
+  createAliasRecord(process.env.FQDN, distribution);
 }
 
 var allowedOrigins: (string | pulumi.Output<string>)[] = [pulumi.interpolate`https://${distribution.domainName}`];

@@ -185,8 +185,9 @@ export function uploadStatic(dirPath: string, bucket: aws.s3.Bucket) {
 export function buildCDN(
   httpApi: aws.apigatewayv2.Api,
   bucket: aws.s3.Bucket,
-  certificateArn: pulumi.Input<string>,
-  routes: string[]
+  routes: string[],
+  FQDN?: string,
+  certificateArn?: pulumi.Input<string>
 ): aws.cloudfront.Distribution {
   const originAccessIdentity = new aws.cloudfront.OriginAccessIdentity('OriginAccessIdentity', {
     comment: 'this is needed to setup s3 polices and make s3 not public.',
@@ -247,10 +248,10 @@ export function buildCDN(
         originAccessControlId: oac.id,
       },
     ],
-    aliases: process.env.FQDN ? [process.env.FQDN] : undefined,
+    aliases: FQDN ? [FQDN] : undefined,
     priceClass: 'PriceClass_100',
     enabled: true,
-    viewerCertificate: process.env.FQDN
+    viewerCertificate: FQDN
       ? {
           // Per AWS, ACM certificate must be in the us-east-1 region.
           acmCertificateArn: certificateArn,

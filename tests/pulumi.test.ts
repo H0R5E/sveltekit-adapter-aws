@@ -304,18 +304,18 @@ describe('Pulumi IAC', () => {
       protocolType: 'HTTP',
     });
     const bucket = new aws.s3.Bucket('MockBucket');
-    const certificateArn = 'MockCertificateArn'
     const routes = ["mock/*"]
+    const FQDN = "server.example.com"
+    const certificateArn = 'MockCertificateArn'
     
     const distribution = infra.buildCDN(
       httpApi,
       bucket,
-      certificateArn,
-      routes)
+      routes,
+      FQDN,
+      certificateArn)
     
     const distOrigins = await promiseOf(distribution.origins)
-    console.log(distOrigins)
-    
     expect(distOrigins).toHaveLength(2)
     
     let customOriginIndex: number | undefined
@@ -329,6 +329,7 @@ describe('Pulumi IAC', () => {
     
     expect(customOriginIndex).toBeDefined()
     const customOrigin = distOrigins[customOriginIndex!]
+    
     expect(customOrigin.domainName).toMatch('example.com')
     expect(customOrigin.customOriginConfig!.httpPort).toBe(80)
     expect(customOrigin.customOriginConfig!.httpsPort).toBe(443)
@@ -348,15 +349,47 @@ describe('Pulumi IAC', () => {
     
     expect(s3OriginIndex).toBeDefined()
     const s3Origin = distOrigins[s3OriginIndex!]
+    
     expect(s3Origin.domainName).toMatch('bucket.s3.mock-west-1.amazonaws.com')
     
     const oacMatch = s3Origin.originAccessControlId!.match("(.*?)-id")
     const oacName = oacMatch![1];
     const oac = mocks.resources[oacName];
     
-    console.log(oac)
     expect(oac.type).toMatch('aws:cloudfront/originAccessControl:OriginAccessControl')
+    expect(oac.originAccessControlOriginType).toMatch('s3')
+    expect(oac.signingBehavior).toMatch('always')
+    expect(oac.signingProtocol).toMatch('sigv4')
     
+    const distAliases = await promiseOf(distribution.aliases)
+    const distEnabled = await promiseOf(distribution.enabled)
+    const distViewerCertificate = await promiseOf(distribution.viewerCertificate)
+    const distDefaultCacheBehavior = await promiseOf(distribution.defaultCacheBehavior)
+    
+    expect(distAliases).toContain(FQDN)
+    expect(distEnabled).toBe(true)
+    expect(distViewerCertificate.acmCertificateArn).toMatch(certificateArn)
+    expect(distViewerCertificate.sslSupportMethod).toMatch('sni-only')
+    expect(distDefaultCacheBehavior.allowedMethods).toEqual([
+      'DELETE',
+      'GET',
+      'HEAD',
+      'OPTIONS',
+      'PATCH',
+      'POST',
+      'PUT'
+    ])
+    expect(distDefaultCacheBehavior.cachedMethods).toEqual([ 'GET', 'HEAD' ])
+    expect(distDefaultCacheBehavior.compress).toBe(true)
+    expect(distDefaultCacheBehavior.viewerProtocolPolicy).toMatch('redirect-to-https')
+    expect(distDefaultCacheBehavior.targetOriginId).toMatch(customOrigin.originId)
+    
+    const requestPolicyMatch = distDefaultCacheBehavior.originRequestPolicyId!.match("(.*?)-id")
+    const requestPolicyName = requestPolicyMatch![1];
+    const requestPolicy = mocks.resources[requestPolicyName];
+    
+    console.log(distribution)
+    console.log(requestPolicy)
   });
   
   
