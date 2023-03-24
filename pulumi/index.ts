@@ -1,7 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 
 import {
-  getEnvironment,
   getLambdaRole,
   buildServer,
   validateCertificate,
@@ -12,6 +11,7 @@ import {
   deployServer,
   buildInvalidator,
 } from './resources';
+import { getEnvironment } from './utils';
 
 const serverPath = process.env.SERVER_PATH!;
 const projectPath = process.env.PROJECT_PATH!;
@@ -51,4 +51,3 @@ buildInvalidator(distribution, staticPath, prerenderedPath);
 export const appUrl = process.env.FQDN
   ? `https://${process.env.FQDN}`
   : pulumi.interpolate`https://${distribution.domainName}`;
-

@@ -1,3 +1,8 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
+
 import * as pulumi from '@pulumi/pulumi';
 import { Mocks } from '@pulumi/pulumi/runtime';
 
@@ -23,9 +28,9 @@ export class MyMocks implements Mocks {
           {
             resourceRecordName: `${args.name}-resourceRecordName`,
             resourceRecordValue: `${args.name}-resourceRecordValue`,
-          }
+          },
         ],
-        bucketRegionalDomainName: 'bucket.s3.mock-west-1.amazonaws.com'
+        bucketRegionalDomainName: 'bucket.s3.mock-west-1.amazonaws.com',
       },
     };
     const resource: Record<string, any> = {
@@ -38,15 +43,14 @@ export class MyMocks implements Mocks {
     return outputs;
   }
   call(args: pulumi.runtime.MockCallArgs): Record<string, any> {
-    const result = {id: `${args.token}-id`,
-                  ...args.inputs};
+    const result = { id: `${args.token}-id`, ...args.inputs };
     if (args.token == 'aws:iam/getPolicyDocument:getPolicyDocument') {
-      result['json'] = JSON.stringify(args.inputs)
+      result['json'] = JSON.stringify(args.inputs);
     }
-    return result
+    return result;
   }
 }
-  
+
 // Convert a pulumi.Output to a promise of the same type.
 export function promiseOf<T>(output: pulumi.Output<T>): Promise<T> {
   return new Promise((resolve) => output.apply(resolve));
@@ -55,8 +59,12 @@ export function promiseOf<T>(output: pulumi.Output<T>): Promise<T> {
 export function findResource(mocks: MyMocks, resourceType: string): Record<string, any> | undefined {
   for (const resource in mocks.resources) {
     if (mocks.resources[resource].type === resourceType) {
-      return mocks.resources[resource]
+      return mocks.resources[resource];
     }
   }
-  return undefined
+  return undefined;
+}
+
+export function getTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), randomUUID()));
 }

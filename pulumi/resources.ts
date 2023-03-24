@@ -5,15 +5,8 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { local } from '@pulumi/command';
-import { config, DotenvConfigOutput } from 'dotenv';
+import { DotenvConfigOutput } from 'dotenv';
 import { hashElement } from 'folder-hash';
-import { assign, keys, pick } from 'lodash';
-
-export function getEnvironment(projectPath: string): DotenvConfigOutput {
-  const dotenv = config({ path: projectPath });
-  const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
-  return { parsed: parsed } as DotenvConfigOutput;
-}
 
 export function getLambdaRole(): aws.iam.Role {
   return new aws.iam.Role('IamForLambda', {
@@ -99,13 +92,12 @@ export function buildServer(
 }
 
 export function validateCertificate(FQDN: string, domainName: string): pulumi.Output<string> {
-  
   if (!FQDN.includes(domainName)) {
     throw new Error('FQDN must contain domainName');
   }
-  
+
   let eastRegion = new aws.Provider('east', { region: 'us-east-1' });
-  
+
   const certificate = new aws.acm.Certificate(
     'Certificate',
     {
@@ -173,7 +165,7 @@ export function uploadStatic(dirPath: string, bucket: aws.s3.Bucket) {
   console.log('Syncing contents from local disk at', dirPath);
   crawlDirectory(dirPath, (filePath: string) => {
     const relativeFilePath = filePath.replace(dirPath + path.sep, '');
-    const posixFilePath = relativeFilePath.split(path.sep).join(path.posix.sep)
+    const posixFilePath = relativeFilePath.split(path.sep).join(path.posix.sep);
     const contentFile = new aws.s3.BucketObject(
       posixFilePath,
       {
@@ -399,12 +391,11 @@ export function buildServerOptionsHandler(
   httpApi: aws.apigatewayv2.Api,
   allowedOrigins: (string | pulumi.Output<string>)[]
 ): aws.apigatewayv2.Route {
-  
   const RPA = new aws.iam.RolePolicyAttachment('ServerRPABasicExecutionRole', {
     role: iamForLambda.name,
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
   });
-  
+
   const optionsHandler = new aws.lambda.Function('OptionsLambda', {
     role: iamForLambda.arn,
     handler: 'index.handler',
@@ -412,7 +403,7 @@ export function buildServerOptionsHandler(
     code: new pulumi.asset.AssetArchive({
       'index.js': pulumi.all(allowedOrigins).apply((x) => {
         return new pulumi.asset.StringAsset(
-         `exports.handler = async(event) => {
+          `exports.handler = async(event) => {
           const allowedOrigins = ${JSON.stringify(x)};
           var headers = {'Access-Control-Allow-Methods': '*',
                          'Access-Control-Allow-Headers': '*',
