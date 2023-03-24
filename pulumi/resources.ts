@@ -5,8 +5,15 @@ import * as path from 'path';
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 import { local } from '@pulumi/command';
-import { DotenvConfigOutput } from 'dotenv';
+import { config, DotenvConfigOutput } from 'dotenv';
 import { hashElement } from 'folder-hash';
+import { assign, keys, pick } from 'lodash';
+
+export function getEnvironment(projectPath: string): DotenvConfigOutput {
+  const dotenv = config({ path: projectPath });
+  const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
+  return { parsed: parsed } as DotenvConfigOutput;
+}
 
 export function getLambdaRole(): aws.iam.Role {
   return new aws.iam.Role('IamForLambda', {
@@ -392,6 +399,12 @@ export function buildServerOptionsHandler(
   httpApi: aws.apigatewayv2.Api,
   allowedOrigins: (string | pulumi.Output<string>)[]
 ): aws.apigatewayv2.Route {
+  
+  const RPA = new aws.iam.RolePolicyAttachment('ServerRPABasicExecutionRole', {
+    role: iamForLambda.name,
+    policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
+  });
+  
   const optionsHandler = new aws.lambda.Function('OptionsLambda', {
     role: iamForLambda.arn,
     handler: 'index.handler',

@@ -3,14 +3,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { spawnSync } from 'child_process';
-import { hashElement } from 'folder-hash';
 
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import { Mocks } from '@pulumi/pulumi/runtime';
 import * as esbuild from 'esbuild';
 
 import { adapter } from '../adapter';
+import { MyMocks, promiseOf, findResource} from './utils'
 
 vi.mock('esbuild', () => ({
   buildSync: vi.fn(),
@@ -20,67 +19,7 @@ vi.mock('child_process', () => ({
   spawnSync: vi.fn(),
 }));
 
-
-class MyMocks implements Mocks {
-  public resources: { [key: string]: Record<string, any> } = {};
-  newResource(args: pulumi.runtime.MockResourceArgs): {
-    id: string | undefined;
-    state: Record<string, any>;
-  } {
-    const id = `${args.name}-id`;
-    const outputs = {
-      id: id,
-      state: {
-        ...args.inputs,
-        executionArn: `${args.name}-executionArn`,
-        arn: `${args.name}-arn`,
-        zoneId: `${args.name}-zone`,
-        domainName: 'example.com',
-        fqdn: 'server.example.com',
-        hostedZoneId: `${args.name}-hostedZone`,
-        apiEndpoint: 'https://example.com',
-        domainValidationOptions: [
-          {
-            resourceRecordName: `${args.name}-resourceRecordName`,
-            resourceRecordValue: `${args.name}-resourceRecordValue`,
-          }
-        ],
-        bucketRegionalDomainName: 'bucket.s3.mock-west-1.amazonaws.com'
-      },
-    };
-    const resource: Record<string, any> = {
-      type: args.type,
-      id,
-      ...outputs.state,
-    };
-    this.resources[args.name] = resource;
-    return outputs;
-  }
-  call(args: pulumi.runtime.MockCallArgs): Record<string, any> {
-    let result = {id: `${args.token}-id`,
-                  ...args.inputs};
-    if (args.token == 'aws:iam/getPolicyDocument:getPolicyDocument') {
-      result['json'] = JSON.stringify(args.inputs)
-    }
-    return result
-  }
-}
-
-// Convert a pulumi.Output to a promise of the same type.
-function promiseOf<T>(output: pulumi.Output<T>): Promise<T> {
-  return new Promise((resolve) => output.apply(resolve));
-}
-
-function findResource(mocks: MyMocks, resourceType: string): Record<string, any> | undefined {
-  for (const resource in mocks.resources) {
-    if (mocks.resources[resource].type === resourceType) {
-      return mocks.resources[resource]
-    }
-  }
-  return undefined
-}
-
-describe('Pulumi IAC', () => {
+describe('pulumi/resources.ts', () => {
   let envOrig: string;
   let infra: typeof import('../pulumi/resources');
   let mocks: MyMocks;
@@ -272,7 +211,7 @@ describe('Pulumi IAC', () => {
     await new Promise(r => setTimeout(r, 100));
     var fileArray = ['a.mock', path.join('child', 'b.mock')]
     
-    for (let fileName of fileArray) {
+    for (const fileName of fileArray) {
       const posixFilePath = fileName.split(path.sep).join(path.posix.sep)
       expect(mocks.resources).toHaveProperty(posixFilePath)
       
@@ -533,4 +472,97 @@ describe('Pulumi IAC', () => {
     expect(parentDomain).toMatch(parent)
   });
   
+  it('buildServerOptionsHandler', async () => {
+    
+    const iamForLambda = infra.getLambdaRole();
+    const httpApi = new aws.apigatewayv2.Api('MockAPI', {
+      protocolType: 'HTTP',
+    });
+    const allowedOrigins = ['https://mock.example.com', 'https://mock.another.com']
+    
+    const optionsRoute = infra.buildServerOptionsHandler(
+      iamForLambda,
+      httpApi,
+      allowedOrigins
+    );
+    
+    const routeKey = await promiseOf(optionsRoute.routeKey);
+    const routeApiId = await promiseOf(optionsRoute.apiId);
+    const expectedApiId = await promiseOf(httpApi.id);
+    const executionArn = await promiseOf(httpApi.executionArn);
+    
+    expectTypeOf(optionsRoute).toEqualTypeOf<aws.apigatewayv2.Route>();
+    expect(routeKey).toMatch('OPTIONS /{proxy+}');
+    expect(routeApiId).toMatch(expectedApiId);
+    
+    const target = await promiseOf(optionsRoute.target);
+    const integrationMatch = target!.match("integrations/(.*?)-id")
+    const serverIntegrationName = integrationMatch![1];
+    
+    expect(mocks.resources).toHaveProperty(serverIntegrationName)
+    const serverIntegration = mocks.resources[serverIntegrationName]
+    
+    expect(serverIntegration.type).toMatch('aws:apigatewayv2/integration:Integration');
+    expect(serverIntegration.apiId).toMatch(expectedApiId);
+    expect(serverIntegration.integrationMethod).toMatch('POST');
+    expect(serverIntegration.integrationType).toMatch('AWS_PROXY');
+    expect(serverIntegration.payloadFormatVersion).toMatch('1.0');
+    
+    const lambdaMatch = serverIntegration.integrationUri.match("(.*?)-arn")
+    const lambdaIntegrationName = lambdaMatch![1];
+    
+    expect(mocks.resources).toHaveProperty(lambdaIntegrationName)
+    const lambda = mocks.resources[lambdaIntegrationName]
+    
+    const iamArn = await promiseOf(iamForLambda.arn);
+    const codeAssets = await lambda.code.assets;
+    
+    expect(lambda.type).toMatch('aws:lambda/function:Function');
+    expect(lambda.handler).toMatch('index.handler');
+    expect(lambda.runtime).toMatch('nodejs16.x');
+    expect(lambda.role).toMatch(iamArn);
+    expect(codeAssets).toHaveProperty('index.js')
+    
+    const codeText = await codeAssets['index.js'].text;
+    expect(codeText).toMatch(/exports.handler/)
+    
+    // Can't access role in mock outputs for RolePolicyAttachment
+    const RPA = findResource(mocks, 'aws:iam/rolePolicyAttachment:RolePolicyAttachment')
+    expect(RPA).toBeDefined();
+    expect(RPA!.policyArn).toMatch('arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole')
+    
+    const serverPermission = findResource(mocks, 'aws:lambda/permission:Permission')
+    expect(serverPermission).toBeDefined();
+    expect(serverPermission!.action).toMatch('lambda:InvokeFunction')
+    expect(serverPermission!.principal).toMatch('apigateway.amazonaws.com')
+    
+    const sourceArnMatch = serverPermission!.sourceArn.match("(.*?)/\\*/\\*")
+    const sourceArn = sourceArnMatch![1];
+    expect(sourceArn).toMatch(executionArn);
+    
+    const functionId = await promiseOf(serverPermission!.function.id);
+    expect(functionId).toMatch(lambda.id);
+    
+  });
+  
+  it('deployServer', async () => {
+    
+    const httpApi = new aws.apigatewayv2.Api('MockAPI', {
+      protocolType: 'HTTP',
+    });
+    const expectedApiId = await promiseOf(httpApi.id);
+    
+    infra.deployServer(httpApi, [])
+    
+    // Need to wait for the mocks to update
+    await new Promise(r => setTimeout(r, 100));
+    
+    const stage = findResource(mocks, 'aws:apigatewayv2/stage:Stage')
+    expect(stage).toBeDefined();
+    
+    expect(stage!.name).toMatch('$default')
+    expect(stage!.autoDeploy).toBe(true)
+    expect(stage!.apiId).toMatch(expectedApiId)
+    
+  });
 });

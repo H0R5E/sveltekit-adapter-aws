@@ -1,8 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
-import { config, DotenvConfigOutput } from 'dotenv';
-import { assign, keys, pick } from 'lodash';
 
 import {
+  getEnvironment,
   getLambdaRole,
   buildServer,
   validateCertificate,
@@ -25,11 +24,8 @@ const routes = process.env.ROUTES?.split(',') || [];
 const serverHeaders = process.env.SERVER_HEADERS?.split(',') || [];
 const staticHeaders = process.env.STATIC_HEADERS?.split(',') || [];
 
-const dotenv = config({ path: projectPath });
-const parsed = assign({}, dotenv.parsed, pick(process.env, keys(dotenv.parsed)));
-const environment = { parsed: parsed } as DotenvConfigOutput;
-
 const iamForLambda = getLambdaRole();
+const environment = getEnvironment(projectPath);
 const { httpApi, defaultRoute } = buildServer(iamForLambda, serverPath, memorySize, environment);
 
 let certificateArn: pulumi.Input<string> | undefined;
@@ -52,6 +48,7 @@ const optionsRoute = buildServerOptionsHandler(iamForLambda, httpApi, allowedOri
 deployServer(httpApi, [defaultRoute, optionsRoute]);
 buildInvalidator(distribution, staticPath, prerenderedPath);
 
-exports.appUrl = process.env.FQDN
+export const appUrl = process.env.FQDN
   ? `https://${process.env.FQDN}`
   : pulumi.interpolate`https://${distribution.domainName}`;
+
